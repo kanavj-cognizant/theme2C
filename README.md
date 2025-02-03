@@ -1,4 +1,4 @@
-# Theme 2D
+# Theme 2C
 
 ## How to use
 
