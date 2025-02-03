@@ -10,6 +10,7 @@ import geopandas as gpd
 import shapely
 import momepy
 import networkx as nx
+import pandas as pd
 from collections import defaultdict
 
 # %% [markdown]
@@ -187,55 +188,123 @@ def directed_graph_bfs(graph: nx.DiGraph, start_node: tuple, csoInfoName: str, d
         curr_nodes = new_curr
     return
 
+
+def undirected_graph_bfs_step(graph: nx.Graph, current_nodes: list[tuple], traversed: set[tuple], csoInfoName: str, distance_cutoff: float, csoID: int | str) -> list[tuple]:
+    new_current_nodes = []
+    for node in current_nodes:
+        children = [c for c in graph.neighbors(node) if c not in traversed]
+        for child in children:
+            dataBefore = graph.nodes(data=csoInfoName)[child]
+            if dataBefore is not None and csoID in dataBefore:
+                continue
+
+            # Check distance
+            total_dist = graph.nodes(data=csoInfoName)[
+                node][csoID] + graph[node][child]["mm_len"]
+
+            if total_dist >= distance_cutoff:
+                continue
+
+            # Add data
+            if dataBefore is not None and isinstance(dataBefore, dict):
+                dataBefore[csoID] = total_dist
+                nx.set_node_attributes(
+                    graph, {child: dataBefore}, csoInfoName)
+
+            # If doesn't exist, add new dict
+            else:
+                nx.set_node_attributes(
+                    graph, {child: {csoID: total_dist}}, csoInfoName)
+
+            # Add to new_curr
+            traversed.add(child)
+            new_current_nodes.append(child)
+    return new_current_nodes
+
 # %% [markdown]
 # #### Doing BFS on graph for each cso
 
 # %%
 
 
-def add_cso_to_graph(graph: nx.DiGraph, p: shapely.Point, ID: int | str, edge: tuple, distance_cutoff: float, include_upstream: bool = True) -> None:
+def add_cso_to_graph(graph: nx.DiGraph, p: shapely.Point, ID: int | str, edge: tuple, distance_cutoff: float, directed: bool, include_upstream: bool = True) -> None:
     if edge is None:
         return
 
     csoInfoName = "csoInfo"
+    if directed:
+        # Loop over successors, add data
+        next_node = edge[1]
+        # Find distance between CSO and first point
+        next_dist = p.distance(shapely.Point(next_node))
 
-    # Loop over successors, add data
-    next_node = edge[1]
-    # Find distance between CSO and first point
-    next_dist = p.distance(shapely.Point(next_node))
+        # Check if distance lesser than threshold
+        if next_dist < distance_cutoff:
+            # Get prev data
+            dataBefore = graph.nodes(data=csoInfoName)[next_node]
+            # If exists, add data
+            if dataBefore is not None and isinstance(dataBefore, dict):
+                dataBefore[ID] = next_dist
+            # If doesn't exist, add new dict
+            else:
+                nx.set_node_attributes(
+                    graph, {next_node: {ID: next_dist}}, csoInfoName)
 
-    # Check if distance lesser than threshold
-    if next_dist < distance_cutoff:
-        # Get prev data
-        dataBefore = graph.nodes(data=csoInfoName)[next_node]
-        # If exists, add data
-        if dataBefore is not None and isinstance(dataBefore, dict):
-            dataBefore[ID] = next_dist
-        # If doesn't exist, add new dict
-        else:
-            nx.set_node_attributes(
-                graph, {next_node: {ID: next_dist}}, csoInfoName)
+            # Loop over children nodes
+            directed_graph_bfs(graph, next_node, csoInfoName,
+                               distance_cutoff, ID, True)
 
-        # Loop over children nodes
-        directed_graph_bfs(graph, next_node, csoInfoName,
-                           distance_cutoff, ID, True)
+        if not include_upstream:
+            return
 
-    if not include_upstream:
+        # Loop over predecessors
+        prev_node = edge[0]
+        prev_dist = -p.distance(shapely.Point(prev_node))
+        if prev_dist > -distance_cutoff:
+            dataBefore = graph.nodes(data=csoInfoName)[prev_node]
+            if dataBefore is not None and isinstance(dataBefore, dict):
+                dataBefore[ID] = prev_dist
+            else:
+                nx.set_node_attributes(
+                    graph, {prev_node: {ID: prev_dist}}, csoInfoName)
+            directed_graph_bfs(graph, prev_node, csoInfoName,
+                               distance_cutoff, ID, False)
         return
+    else:
 
-    # Loop over predecessors
-    prev_node = edge[0]
-    prev_dist = -p.distance(shapely.Point(prev_node))
-    if prev_dist > -distance_cutoff:
-        dataBefore = graph.nodes(data=csoInfoName)[prev_node]
-        if dataBefore is not None and isinstance(dataBefore, dict):
-            dataBefore[ID] = prev_dist
-        else:
-            nx.set_node_attributes(
-                graph, {prev_node: {ID: prev_dist}}, csoInfoName)
-        directed_graph_bfs(graph, prev_node, csoInfoName,
-                           distance_cutoff, ID, False)
-    return
+        traversed = set()
+
+        curr_nodes = []
+        next_node = edge[1]
+        next_dist = p.distance(shapely.Point(next_node))
+        # Check if distance lesser than threshold
+        if next_dist < distance_cutoff:
+            # Get prev data
+            dataBefore = graph.nodes(data=csoInfoName)[next_node]
+            # If exists, add data
+            if dataBefore is not None and isinstance(dataBefore, dict):
+                dataBefore[ID] = next_dist
+            # If doesn't exist, add new dict
+            else:
+                nx.set_node_attributes(
+                    graph, {next_node: {ID: next_dist}}, csoInfoName)
+            curr_nodes.append(next_node)
+            traversed.add(next_node)
+        prev_node = edge[0]
+        prev_dist = p.distance(shapely.Point(prev_node))
+        if prev_dist < distance_cutoff:
+            dataBefore = graph.nodes(data=csoInfoName)[prev_node]
+            if dataBefore is not None and isinstance(dataBefore, dict):
+                dataBefore[ID] = prev_dist
+            else:
+                nx.set_node_attributes(
+                    graph, {prev_node: {ID: prev_dist}}, csoInfoName)
+            curr_nodes.append(prev_node)
+            traversed.add(prev_node)
+        while len(curr_nodes) > 0:
+            curr_nodes = undirected_graph_bfs_step(
+                graph, curr_nodes, traversed, csoInfoName, distance_cutoff, ID)
+        return
 
 # %% [markdown]
 # #### Converting rivers to a graph and adding node attributes
@@ -243,11 +312,11 @@ def add_cso_to_graph(graph: nx.DiGraph, p: shapely.Point, ID: int | str, edge: t
 # %%
 
 
-def river_to_directed_graph(rivers: gpd.GeoDataFrame) -> nx.DiGraph:
+def river_to_directed_graph(rivers: gpd.GeoDataFrame, directed: bool) -> nx.DiGraph | nx.Graph:
     riverGraph = momepy.gdf_to_nx(
         rivers,
         approach="primal",
-        directed=True,  # To indicate flow direction
+        directed=directed,  # To indicate flow direction
         multigraph=False,
     )
 
@@ -332,9 +401,6 @@ def calculate_risk_factors_cso(
     cso_renamed = cso_df.rename(columns={cso_df_id_col: "csoID"})
     river_renamed = river_df.rename(columns={river_df_id_col: "riverID"})
 
-    if not river_directed:
-        raise NotImplementedError("Didn't implement lol")
-
     riverSplit = split_rivers(
         river_renamed, river_resolution)
 
@@ -346,10 +412,10 @@ def calculate_risk_factors_cso(
         cso_with_edge = add_closest_edge(cso_renamed, riverSplit)
         outfall_col = "geometry"
 
-    riverGraph = river_to_directed_graph(riverSplit)
+    riverGraph = river_to_directed_graph(riverSplit, directed=river_directed)
 
     cso_with_edge.apply(lambda x: add_cso_to_graph(
-        riverGraph, x[outfall_col], x["csoID"], x["closestEdge"], distance_cutoff=max_risk_distance, include_upstream=include_upstream), axis=1)
+        riverGraph, x[outfall_col], x["csoID"], x["closestEdge"], distance_cutoff=max_risk_distance, directed=river_directed, include_upstream=include_upstream), axis=1)
 
     river_data = graph_to_gdf(riverGraph)
 
