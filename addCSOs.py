@@ -407,15 +407,14 @@ def calculate_risk_factors_cso(
     if calc_outfall_location:
         cso_with_edge = cso_add_outfall_location_and_edge(
             cso_renamed, riverSplit, max_outfall_dist_from_river)
-        outfall_col = "outfallLocation"
     else:
         cso_with_edge = add_closest_edge(cso_renamed, riverSplit)
-        outfall_col = "geometry"
+        cso_with_edge["outfallLocation"] = cso_with_edge.geometry.copy()
 
     riverGraph = river_to_directed_graph(riverSplit, directed=river_directed)
 
     cso_with_edge.apply(lambda x: add_cso_to_graph(
-        riverGraph, x[outfall_col], x["csoID"], x["closestEdge"], distance_cutoff=max_risk_distance, directed=river_directed, include_upstream=include_upstream), axis=1)
+        riverGraph, x["oufallLocation"], x["csoID"], x["closestEdge"], distance_cutoff=max_risk_distance, directed=river_directed, include_upstream=include_upstream), axis=1)
 
     river_data = graph_to_gdf(riverGraph)
 
