@@ -414,7 +414,7 @@ def calculate_risk_factors_cso(
     riverGraph = river_to_directed_graph(riverSplit, directed=river_directed)
 
     cso_with_edge.apply(lambda x: add_cso_to_graph(
-        riverGraph, x["oufallLocation"], x["csoID"], x["closestEdge"], distance_cutoff=max_risk_distance, directed=river_directed, include_upstream=include_upstream), axis=1)
+        riverGraph, x["outfallLocation"], x["csoID"], x["closestEdge"], distance_cutoff=max_risk_distance, directed=river_directed, include_upstream=include_upstream), axis=1)
 
     river_data = graph_to_gdf(riverGraph)
 
