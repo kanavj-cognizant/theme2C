@@ -10,6 +10,7 @@ import geopandas as gpd
 import shapely
 import momepy
 import networkx as nx
+import pyproj
 import pandas as pd
 from collections import defaultdict
 
@@ -378,9 +379,10 @@ def calculate_risk_factors_cso(
 ) -> gpd.GeoDataFrame | tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
     """
     Calculate risk factors for Combined Sewer Overflows (CSOs) based on their proximity to rivers.
+    IMPORTANT: Use CRS - EPSG 3857 for accurate distance measurements and best results
     Parameters:
-    cso_df (gpd.GeoDataFrame): GeoDataFrame containing CSO data.
-    river_df (gpd.GeoDataFrame): GeoDataFrame containing river data.
+    cso_df (gpd.GeoDataFrame): GeoDataFrame containing CSO data. CRS - EPSG 3857
+    river_df (gpd.GeoDataFrame): GeoDataFrame containing river data. CRS - EPSG 3857
     cso_df_id_col (str, optional): Column name for CSO IDs in cso_df. Defaults to "OBJECTID".
     river_df_id_col (str, optional): Column name for river IDs in river_df. Defaults to "OBJECTID".
     river_resolution (float, optional): Resolution for splitting river segments. Defaults to 125.
@@ -390,9 +392,12 @@ def calculate_risk_factors_cso(
     river_directed (bool, optional): Whether the river is directed. Defaults to True.
     include_upstream (bool, optional): Whether to include upstream in risk calculation. Defaults to False.
     Returns:
-    gpd.GeoDataFrame | tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]: Returns a GeoDataFrame with river data. If calc_outfall_location is True, also returns a GeoDataFrame with CSO data. 
+    gpd.GeoDataFrame | tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]: Returns a GeoDataFrame with river data. If calc_outfall_location is True, also returns a GeoDataFrame with CSO data. CRS-ESPG 3857
     """
 
+    if river_df.crs!=pyproj.CRS(3857) or cso_df.crs!=pyproj.CRS(3857):
+        raise ValueError("crs must be in EPSG 3857")
+    
     if "riverID" in river_df.columns and river_df_id_col != "riverID":
         raise ValueError("please change riverID column name to something else")
     if "csoID" in cso_df.columns and cso_df_id_col != "csoID":
