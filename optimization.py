@@ -2,7 +2,7 @@ import geopandas as gpd
 from collections.abc import Callable
 
 
-def greedy_optimization(n_sensors: int, risk: gpd.GeoDataFrame, riskfunc: Callable, max_cso_coverage_dist: float) -> gpd.GeoDataFrame:
+def greedy_optimization(n_sensors: int, risk: gpd.GeoDataFrame, riskfunc: Callable, max_cso_coverage_dist: float) -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
     sensors = gpd.GeoDataFrame(
         data={"csoCovered": []}, geometry=[])
     risk_after_sensor = risk.copy()
@@ -16,7 +16,7 @@ def greedy_optimization(n_sensors: int, risk: gpd.GeoDataFrame, riskfunc: Callab
         max_risk_idx = risk_after_sensor["Risk"].idxmax()
 
         sensor_loc = risk_after_sensor.loc[max_risk_idx].geometry
-        
+
         # Add the csos within a certain distance of the sensor point
         csos_covered = [cso for cso,
                         dist in risk_after_sensor.loc[max_risk_idx, "csoInfo"] if dist <= max_cso_coverage_dist]
@@ -33,4 +33,4 @@ def greedy_optimization(n_sensors: int, risk: gpd.GeoDataFrame, riskfunc: Callab
         risk_after_sensor["Risk"] = riskfunc(risk_after_sensor)
 
     sensors = sensors.set_crs(risk.crs)
-    return sensors
+    return sensors, risk_after_sensor

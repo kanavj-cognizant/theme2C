@@ -1,5 +1,6 @@
 # Project Specific
 gcloud_stuff.ipynb
+*.out
 
 # Vscode
 .vscode/
