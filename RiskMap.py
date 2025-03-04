@@ -5,8 +5,11 @@ import numpy as np
 from collections.abc import Callable
 import momepy
 import pandas as pd
+from copy import deepcopy
+
 import utils.rivers
 import utils.graphBFS
+
 
 """
 RiskMap Class
@@ -56,7 +59,7 @@ class RiskMap():
         self.__risk_map: gpd.GeoDataFrame | None = None
         self.__river_network: nx.Graph | None = None
 
-    def __repr__(self) -> gpd.GeoDataFrame | None:
+    def __repr__(self) -> str | None:
         """
         Return the risk map as a GeoDataFrame if it has been constructed.
 
@@ -68,7 +71,7 @@ class RiskMap():
         if self.__risk_map is None:
             return None
         else:
-            return self.__risk_map.copy()
+            return self.__risk_map.__repr__()
 
     def get_rivers(self) -> gpd.GeoDataFrame:
         """
@@ -213,12 +216,12 @@ class RiskMap():
             return closestPoint
 
     # Add risk to map
-    def add_risk(self, col_name_risk: str, risk_name: str, risk_method: Callable, distance_scaling: Callable, aggregation_method: Callable = sum) -> None:
+    def add_risk(self, info_col: str, risk_name: str, risk_method: Callable, distance_scaling: Callable, aggregation_method: Callable = sum, ids_to_ignore: list = [], inplace: bool = True) -> pd.Series | None:
         """add_risk adds risk about a certain column in the riskMap
 
         Parameters
         ----------
-        col_name_risk : str
+        info_col : str
             The name of the column in the risk map containing tuples of (ID,dist) from river points
         risk_name : str
             The column name of the risk to be assigned in the risk map
@@ -228,18 +231,169 @@ class RiskMap():
             A method from dist -> float which gives the distance scaling of that risk
         aggregation_method : Callable, optional
             The method iterable -> float to aggregate different risks together, by default sum
+        ids_to_ignore : list
+            The IDs to ignore from the risk calculation, by default []
+        inplace : bool, optional
+            Whether to add the risk to the risk map inplace or return a new risk map, by default True
+
+        Returns
+        -------
+        pd.Series | None
+            The risk values for each point in the risk map if inplace is False, otherwise None
 
         Raises
         ------
         Exception
-            If the col_name_risk doesn't exist in the riskmap, it asks the user to generate ie
+            If the col_name_risk doesn't exist in the riskmap, it asks the user to generate it
         """
-        if col_name_risk not in self.__risk_map.columns:
+        if info_col not in self.__risk_map.columns:
             raise Exception(
-                "No " + col_name_risk + " in the risk map. Has the point info been added to the map?")
+                "No " + info_col + " in the risk map. Has the point info been added to the map?")
 
         Risk = self.__risk_map.apply(lambda x: aggregation_method(
-            [risk_method(ID)*distance_scaling(dist) for ID, dist in x[col_name_risk] if risk_method(ID) is not None]), axis=1)
+            [risk_method(id)*distance_scaling(dist) for id, dist in x[info_col] if (risk_method(id) is not None) and (id not in ids_to_ignore)]), axis=1)
 
-        self.__risk_map[risk_name] = Risk
-        return
+        if inplace:
+            self.__risk_map[risk_name] = Risk
+            return
+        else:
+            return Risk.rename(risk_name)
+
+    def add_all_risk(self, risk_list: list[dict], aggregation_method: Callable = sum, inplace: bool = True) -> gpd.GeoDataFrame | None:
+        """add_all_risk takes in a list of dictionaries and aggregates the risks together
+        and adds it to the "Risk" column in the riskmap
+
+        Parameters
+        ----------
+        risk_list : list[dict]
+            A list of dictionaries consisting of parameters for the RiskMap.add_risk() method
+
+            info_col: str
+
+            risk_name: str
+
+            risk_method: Callable
+
+            distance_scaling: Callable
+
+            aggregation_method: Callable (optional)
+
+            ids_to_ignore: list
+        aggregation_method : Callable, optional
+            The aggregation method for all the risks together list[float] -> float, by default sum
+        inplace : bool, optional
+            Whether to add the risk to the risk map inplace or return a new risk map, by default True
+
+        Returns
+        -------
+
+        gpd.GeoDataFrame | None
+            The risk map with the aggregated risk if inplace is False, otherwise None
+
+        Raises
+        ------
+        ValueError
+            If one of the risk_name is "Risk"
+        """
+        if not inplace:
+            risks = pd.DataFrame()
+        for item in risk_list:
+            if item["risk_name"] == "Risk":
+                raise ValueError("Cannot have the risk name be Risk")
+            if inplace:
+                self.add_risk(**item)
+            else:
+                risks[item["risk_name"]] = self.add_risk(**item, inplace=False)
+
+        if inplace:
+            self.__risk_map["Risk"] = self.__risk_map.apply(lambda x: aggregation_method(
+                [x[item["risk_name"]] for item in risk_list]), axis=1)
+            return
+        else:
+            risks["Risk"] = risks.apply(lambda x: aggregation_method(
+                [x[item["risk_name"]] for item in risk_list]), axis=1)
+            return pd.concat([self.__risk_map[[col for col in self.__risk_map.columns if col != "Risk"]], risks], axis=1)
+
+    # Optimization
+
+    def optimization_greedy(
+        self,
+        n_sensors: float,
+        riskList: list[dict],
+        sensor_coverage_dist: float,
+        hist: bool = True
+    ) -> list[tuple[gpd.GeoDataFrame, pd.Series]] | tuple[gpd.GeoDataFrame, pd.Series]:
+        """optimization_greedy is a greedy optimization algorithm to find the best sensor locations
+
+        Parameters
+        ----------
+        n_sensors : float
+            The number of sensors to be placed
+        riskList : list[dict]
+            A list of dictionaries consisting of parameters for the RiskMap.add_risk() method
+
+            info_col: str
+
+            risk_name: str
+
+            risk_method: Callable
+
+            distance_scaling: Callable
+
+            aggregation_method: Callable (optional)
+
+            ids_to_ignore: list
+        sensor_coverage_dist : float
+            The maximum distance a sensor can cover
+        hist : bool, optional
+            Whether to store the information and return it as a list or not, by default True
+
+        Returns
+        -------
+        list[tuple[gpd.GeoDataFrame,pd.Series]] | tuple[gpd.GeoDataFrame,pd.Series]
+            A list of tuples containing the sensor locations and the risk map at that point if hist is 
+            True, otherwise a tuple containing the sensor locations and the risk map at that point
+        """
+        sensors = gpd.GeoDataFrame(
+            data={}, geometry=[])
+        newrisk = self.add_all_risk(riskList, inplace=False)["Risk"]
+        if hist:
+            risk_hist = []
+            risk_hist.append((gpd.GeoDataFrame(), newrisk.copy()))
+
+        riskList2 = deepcopy(riskList)
+        for i in range(n_sensors):
+            if newrisk.max() == 0:
+                print(f"All risk accounted for by {i} sensors")
+                break
+
+            max_risk_idx = newrisk.idxmax()
+            sensor_loc = self.__risk_map.loc[max_risk_idx].geometry
+
+            # Add the csos within a certain distance of the sensor point
+            covered = {}
+            for item in riskList2:
+                idscovered = [thing[0] for thing in self.__risk_map.loc[max_risk_idx,
+                                                                        item["info_col"]] if thing[1] <= sensor_coverage_dist]
+                if "ids_to_ignore" not in item:
+                    item["ids_to_ignore"] = idscovered
+                else:
+                    item["ids_to_ignore"] = item["ids_to_ignore"] + idscovered
+                covered[item["info_col"]+"_covered"] = [idscovered]
+            # Add sensor to the list
+            covered["geometry"] = sensor_loc
+
+            sensors = pd.concat([sensors, gpd.GeoDataFrame(
+                covered, geometry="geometry", crs="EPSG:3857")], ignore_index=True)
+            sensors = sensors.set_crs(epsg=3857)
+            sensors.index = sensors.index+1
+
+            # Remove the CSOs from the risk calculation
+            newrisk = self.add_all_risk(riskList2, inplace=False)["Risk"]
+
+            if hist:
+                risk_hist.append((sensors.copy(), newrisk.copy()))
+        if hist:
+            return risk_hist
+        else:
+            return sensors, newrisk
