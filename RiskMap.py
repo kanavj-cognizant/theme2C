@@ -8,7 +8,7 @@ import pandas as pd
 from copy import deepcopy
 
 import utils.rivers
-import utils.graphBFS
+import utils.graph
 
 
 """
@@ -95,7 +95,7 @@ class RiskMap():
         """
         if self.__river_network is None:
             return None
-        return self.__river_network.copy(as_view=True)
+        return self.__river_network.copy()
 
     def get_risk_map(self) -> gpd.GeoDataFrame | None:
         """
@@ -108,7 +108,7 @@ class RiskMap():
         """
         if self.__risk_map is None:
             return None
-        return self.__risk_map.copy()
+        return self.__risk_map
 
     # Construct rivers graph
     def construct_river_graph(self) -> None:
@@ -155,14 +155,15 @@ class RiskMap():
         return points_data
 
     # Add points to map
-    def add_point_info_to_map(self,
-                              ids: gpd.GeoSeries,
-                              geometry: gpd.GeoSeries,
-                              col_name_graph: str,
-                              max_risk_distance: float,
-                              max_dist_from_river: float,
-                              include_upstream: bool = False,
-                              return_locations: bool = True) -> gpd.GeoSeries | None:
+    def add_point_info_to_map(
+        self,
+        ids: gpd.GeoSeries,
+        geometry: gpd.GeoSeries,
+        col_name_graph: str,
+        max_risk_distance: float,
+        max_dist_from_river: float,
+        include_upstream: bool = False,
+    ) -> gpd.GeoSeries:
         """
         Add information about point locations to the river network graph.
 
@@ -199,9 +200,10 @@ class RiskMap():
                                                                                         geometry, max_dist_from_river)
         df = pd.DataFrame(
             {"ids": ids, "closestPoint": closestPoint, "closestEdge": closestEdge})
+
         df.apply(
             lambda x:
-            utils.graphBFS.add_to_graph(
+            utils.graph.add_to_graph(
                 self.__river_network,
                 col_name_graph,
                 x["ids"],
@@ -212,11 +214,18 @@ class RiskMap():
                 both_ways=include_upstream
             ), axis=1
         )
-        if return_locations:
-            return closestPoint
+        return closestPoint
 
     # Add risk to map
-    def add_risk(self, info_col: str, risk_name: str, risk_method: Callable, distance_scaling: Callable, aggregation_method: Callable = sum, ids_to_ignore: list = [], inplace: bool = True) -> pd.Series | None:
+    def add_risk(self,
+                 info_col: str,
+                 risk_name: str,
+                 risk_method: Callable,
+                 distance_scaling: Callable,
+                 aggregation_method: Callable = sum,
+                 ids_to_ignore: list = [],
+                 inplace: bool = True,
+                 ) -> gpd.GeoDataFrame | None:
         """add_risk adds risk about a certain column in the riskMap
 
         Parameters
@@ -238,7 +247,7 @@ class RiskMap():
 
         Returns
         -------
-        pd.Series | None
+        gpd.GeoDataFrame | None
             The risk values for each point in the risk map if inplace is False, otherwise None
 
         Raises
@@ -246,18 +255,27 @@ class RiskMap():
         Exception
             If the col_name_risk doesn't exist in the riskmap, it asks the user to generate it
         """
-        if info_col not in self.__risk_map.columns:
-            raise Exception(
-                "No " + info_col + " in the risk map. Has the point info been added to the map?")
 
-        Risk = self.__risk_map.apply(lambda x: aggregation_method(
-            [risk_method(id)*distance_scaling(dist) for id, dist in x[info_col] if (risk_method(id) is not None) and (id not in ids_to_ignore)]), axis=1)
-
+        Risk = utils.graph.add_risk(
+            self.__river_network,
+            info_col,
+            risk_name,
+            risk_method,
+            distance_scaling,
+            aggregation_method,
+            ids_to_ignore,
+            inplace
+        )
         if inplace:
-            self.__risk_map[risk_name] = Risk
             return
         else:
-            return Risk.rename(risk_name)
+            gdf = gpd.GeoDataFrame.from_dict(Risk, orient="index")
+            gdf = gdf.reset_index()
+            gdf.set_geometry(gdf.apply(lambda x: shapely.Point(
+                x["level_0"], x["level_1"]), axis=1), inplace=True)
+            gdf.set_crs(epsg=3857, inplace=True)
+            gdf.drop(columns=["level_0", "level_1"], inplace=True)
+            return gdf
 
     def add_all_risk(self, risk_list: list[dict], aggregation_method: Callable = sum, inplace: bool = True) -> gpd.GeoDataFrame | None:
         """add_all_risk takes in a list of dictionaries and aggregates the risks together
@@ -296,23 +314,25 @@ class RiskMap():
             If one of the risk_name is "Risk"
         """
         if not inplace:
-            risks = pd.DataFrame()
+            risks = gpd.GeoDataFrame({"geometry": []}, geometry="geometry")
         for item in risk_list:
             if item["risk_name"] == "Risk":
                 raise ValueError("Cannot have the risk name be Risk")
             if inplace:
                 self.add_risk(**item)
             else:
-                risks[item["risk_name"]] = self.add_risk(**item, inplace=False)
+                risks = risks.set_index("geometry").join(self.add_risk(
+                    **item, inplace=False).set_index("geometry"), how="outer").reset_index()
 
         if inplace:
-            self.__risk_map["Risk"] = self.__risk_map.apply(lambda x: aggregation_method(
-                [x[item["risk_name"]] for item in risk_list]), axis=1)
+            for node in self.__river_network.nodes:
+                self.__river_network.nodes[node]["Risk"] = aggregation_method(
+                    [self.__river_network.nodes[node][item["risk_name"]] for item in risk_list])
             return
         else:
             risks["Risk"] = risks.apply(lambda x: aggregation_method(
                 [x[item["risk_name"]] for item in risk_list]), axis=1)
-            return pd.concat([self.__risk_map[[col for col in self.__risk_map.columns if col != "Risk"]], risks], axis=1)
+            return gpd.GeoDataFrame(risks, geometry="geometry", crs="EPSG:3857")
 
     # Optimization
 

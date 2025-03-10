@@ -1,8 +1,19 @@
 import networkx as nx
 import shapely
+from collections.abc import Callable
+from collections import defaultdict
 
 
-def add_to_graph(graph: nx.DiGraph, colName: str, ID: int | str, p: shapely.Point, edge: tuple, distance_cutoff: float, directed: bool, both_ways: bool = True) -> None:
+def add_to_graph(
+    graph: nx.DiGraph,
+    colName: str,
+    ID: int | str,
+    p: shapely.Point,
+    edge: tuple,
+    distance_cutoff: float,
+    directed: bool,
+    both_ways: bool = True,
+) -> None:
     if edge is None:
         return
 
@@ -200,4 +211,46 @@ def undirected_graph_bfs(graph: nx.Graph, current_nodes: list[tuple], traversed:
                 traversed.add(child)
                 new_current_nodes.append(child)
         current_nodes = new_current_nodes
+    return
+
+
+def add_risk(
+    network: nx.Graph,
+    info_col: str,
+    risk_name: str,
+    risk_method: Callable,
+    distance_scaling: Callable,
+    aggregation_method: Callable = sum,
+    ids_to_ignore: list = [],
+    inplace=True,
+) -> dict[dict[float]] | None:
+
+    found = False
+    if not inplace:
+        retdict: dict[dict[float]] = defaultdict(dict)
+
+    for node in network.nodes:
+        if info_col in network.nodes[node]:
+            found = True
+            rsk = []
+            for id, dist in network.nodes[node][info_col].items():
+                if id in ids_to_ignore:
+                    continue
+                idrisk = risk_method(id)
+                if idrisk:
+                    rsk.append(idrisk*distance_scaling(dist))
+            if inplace:
+                network.nodes[node][risk_name] = aggregation_method(rsk)
+            else:
+                retdict[node][risk_name] = aggregation_method(rsk)
+        else:
+            if inplace:
+                network.nodes[node][risk_name] = 0
+            else:
+                retdict[node][risk_name] = 0
+    if not found:
+        raise ValueError(f"Column {info_col} not found in network nodes")
+
+    if not inplace:
+        return retdict
     return
