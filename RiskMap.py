@@ -374,12 +374,14 @@ class RiskMap():
             A list of tuples containing the sensor locations and the risk map at that point if hist is 
             True, otherwise a tuple containing the sensor locations and the risk map at that point
         """
+
         sensors = gpd.GeoDataFrame(
             data={}, geometry=[])
-        newrisk = self.add_all_risk(riskList, inplace=False)["Risk"]
+        allrisk = self.add_all_risk(riskList, inplace=False)
+        newrisk = allrisk["Risk"]
         if hist:
             risk_hist = []
-            risk_hist.append((gpd.GeoDataFrame(), newrisk.copy()))
+            risk_hist.append((gpd.GeoDataFrame(), allrisk.copy()))
 
         riskList2 = deepcopy(riskList)
         for i in range(n_sensors):
@@ -388,13 +390,12 @@ class RiskMap():
                 break
 
             max_risk_idx = newrisk.idxmax()
-            sensor_loc = self.__risk_map.loc[max_risk_idx].geometry
+            sensor_loc: shapely.Point = allrisk.loc[max_risk_idx].geometry
 
             # Add the csos within a certain distance of the sensor point
             covered = {}
             for item in riskList2:
-                idscovered = [thing[0] for thing in self.__risk_map.loc[max_risk_idx,
-                                                                        item["info_col"]] if thing[1] <= sensor_coverage_dist]
+                idscovered = [id for id,dist in self.__river_network.nodes[(sensor_loc.x,sensor_loc.y)][item["info_col"]].items() if dist<= sensor_coverage_dist]
                 if "ids_to_ignore" not in item:
                     item["ids_to_ignore"] = idscovered
                 else:
@@ -409,11 +410,11 @@ class RiskMap():
             sensors.index = sensors.index+1
 
             # Remove the CSOs from the risk calculation
-            newrisk = self.add_all_risk(riskList2, inplace=False)["Risk"]
-
+            allrisk = self.add_all_risk(riskList2, inplace=False)
+            newrisk = allrisk["Risk"]
             if hist:
-                risk_hist.append((sensors.copy(), newrisk.copy()))
+                risk_hist.append((sensors.copy(), allrisk.copy()))
         if hist:
             return risk_hist
         else:
-            return sensors, newrisk
+            return sensors, allrisk
