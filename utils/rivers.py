@@ -7,7 +7,7 @@ import networkx as nx
 import pandas as pd
 
 
-def add_location_on_river_and_closest_edge(rivers: gpd.GeoDataFrame, geometry: gpd.GeoSeries, max_dist_from_river: float) -> tuple[gpd.GeoSeries, gpd.GeoSeries]:
+def add_location_on_river_and_closest_edge(rivers: gpd.GeoDataFrame, geometry: gpd.GeoSeries, max_dist_from_river: float) -> tuple[pd.Series, pd.Series]:
     """
     Find the closest points on the river network for given geometries.
 
@@ -22,8 +22,8 @@ def add_location_on_river_and_closest_edge(rivers: gpd.GeoDataFrame, geometry: g
 
     Returns
     -------
-    tuple[gpd.GeoSeries, gpd.GeoSeries]
-        A tuple containing GeoSeries of the closest points and edges on the river network.
+    tuple[pd.Series, pd.Series, pd.Series]
+        A tuple containing Series of the closest points and edges on the river network and the riverID.
     """
     def find_shortest_line(p: shapely.Point, idx: float | None, riversDf: gpd.GeoDataFrame) -> shapely.LineString | None:
         if not idx > 0:
@@ -59,7 +59,7 @@ def add_location_on_river_and_closest_edge(rivers: gpd.GeoDataFrame, geometry: g
         get_line_endpoint).set_crs(nearest_point_info.crs)
     nearest_point_info["closestEdge"] = nearest_point_info["closestEdge"].apply(
         return_linestring_coords)
-    return nearest_point_info["closestPoint"], nearest_point_info["closestEdge"]
+    return nearest_point_info["closestPoint"], nearest_point_info["closestEdge"], nearest_point_info["riverID"]
 
 
 def river_to_graph(rivers: gpd.GeoDataFrame, directed: bool) -> nx.DiGraph | nx.Graph:
@@ -116,12 +116,6 @@ def split_rivers(rivers: gpd.GeoDataFrame, resolution: float, river_df_id_col: s
     """
     
     rivers2 = rivers.copy()
-    # Check if column in rivers
-    if not river_df_id_col in rivers2.columns:
-        raise ValueError(
-            f"River id column [{river_df_id_col}] not in river dataframe columns")
-    rivers2.rename(
-        columns={river_df_id_col: "riverID"}, inplace=True)
 
     # Check if anything given is not a LineString
     if rivers2.geometry.apply(lambda x: type(x) != shapely.LineString).any():
@@ -154,3 +148,25 @@ def split_rivers(rivers: gpd.GeoDataFrame, resolution: float, river_df_id_col: s
     rivers2.geometry = rivers2.geometry.set_crs(rivers.crs)
     rivers2.reset_index(inplace=True)
     return rivers2
+
+
+FLOW_ACCUM_COEFF = 4.572E-6  # m2/s
+
+def linear_flow(accum_len:float,flow_coeff:float=None)->float:
+    """linear_flow gives a linear approximation of the river flow(m3/sec) given the upstream accumulated length
+
+    Parameters
+    ----------
+    accum_len : float
+        The upstream accumulated length in metres
+    flow_coeff : float, optional
+        The coefficient to give the river flow, by default None
+
+    Returns
+    -------
+    float
+        The river flow in m3/sec
+    """
+    if flow_coeff is None:
+        flow_coeff=FLOW_ACCUM_COEFF
+    return flow_coeff*accum_len

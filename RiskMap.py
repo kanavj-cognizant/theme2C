@@ -8,7 +8,7 @@ import pandas as pd
 from copy import deepcopy
 
 import utils.rivers
-import utils.graph
+import utils.graph as graph
 
 
 """
@@ -52,9 +52,20 @@ class RiskMap():
     """
 
     def __init__(self, riversdf: gpd.GeoDataFrame, id_col: str, resolution: float, directed: bool = True):
-        riversdf = riversdf.to_crs(epsg=3857)
-        self.__rivers: gpd.GeoDataFrame = utils.rivers.split_rivers(
+
+        # Check if column in rivers
+        if not id_col in riversdf.columns:
+            raise ValueError(
+                f"River id column [{id_col}] not in river dataframe columns")
+        riversdf = riversdf.to_crs(epsg=3857).rename(
+            columns={id_col: "riverID"})
+        self.__rivers: gpd.GeoDataFrame = riversdf
+
+        self.__rivers_split: gpd.GeoDataFrame = utils.rivers.split_rivers(
             riversdf, resolution, id_col)
+
+        self.__rivers.set_index("riverID", verify_integrity=True, inplace=True)
+
         self.__directed = directed
         self.__risk_map: gpd.GeoDataFrame | None = None
         self.__river_network: nx.Graph | None = None
@@ -73,20 +84,32 @@ class RiskMap():
         else:
             return self.__risk_map.__repr__()
 
-    def get_rivers(self) -> gpd.GeoDataFrame:
-        """
-        Return the processed river data.
+    # Getter functions
+    def get_rivers(self, copy: bool = True) -> gpd.GeoDataFrame:
+        """get_rivers returns the rivers from the RiskMap
+
+        Parameters
+        ----------
+        copy : bool, optional
+            Whether to return a copy or the original GeoDataFrame, by default True
 
         Returns
         -------
         gpd.GeoDataFrame
-            The processed river data as a GeoDataFrame.
+            The rivers dataframe
         """
-        return self.__rivers.copy()
+        if copy:
+            return self.__rivers.copy()
+        else:
+            return self.__rivers
 
-    def get_river_network(self) -> nx.Graph | None:
-        """
-        Return the river network as a NetworkX graph.
+    def get_river_network(self, copy: bool = True) -> nx.Graph | None:
+        """get_river_network returns the river network as a NetworkX graph.
+
+        Parameters
+        ----------
+        copy: bool, optional
+            Whether to return a copy of the network or the original, by default True
 
         Returns
         -------
@@ -95,7 +118,10 @@ class RiskMap():
         """
         if self.__river_network is None:
             return None
-        return self.__river_network.copy()
+        if copy:
+            return self.__river_network.copy()
+        else:
+            return self.__river_network
 
     def get_risk_map(self) -> gpd.GeoDataFrame | None:
         """
@@ -110,7 +136,7 @@ class RiskMap():
             return None
         return self.__risk_map
 
-    # Construct rivers graph
+    # Constructor functions
     def construct_river_graph(self) -> None:
         """
         Construct a river network graph from the processed river data.
@@ -119,7 +145,7 @@ class RiskMap():
         represents a river segment intersection and edges represent river segments.
         """
         self.__river_network = utils.rivers.river_to_graph(
-            self.__rivers, self.__directed)
+            self.__rivers_split, self.__directed)
 
     def construct_risk_map(self) -> None:
         """
@@ -184,29 +210,28 @@ class RiskMap():
             Maximum distance for finding the closest river segment to the points.
         include_upstream : bool, optional
             Indicates whether to include upstream propagation. Default is False.
-        return_locations : bool, optional
-            Indicates whether to return the closest points on the river network. Default is True.
 
         Returns
         -------
-        gpd.GeoSeries | None
-            GeoSeries of the closest points on the river network if return_locations is True, otherwise None.
+        gpd.GeoSeries
+            GeoSeries of the closest points on the river network
         """
-        if geometry.crs != self.__rivers.crs:
+        if geometry.crs != self.__rivers_split.crs:
             raise ValueError(
                 "Points are not in EPSG:3857 CRS which is used by the class")
 
-        closestPoint, closestEdge = utils.rivers.add_location_on_river_and_closest_edge(self.__rivers,
-                                                                                        geometry, max_dist_from_river)
+        closestPoint, closestEdge, riverID = utils.rivers.add_location_on_river_and_closest_edge(self.__rivers_split,
+                                                                                                 geometry, max_dist_from_river)
         df = pd.DataFrame(
             {"ids": ids, "closestPoint": closestPoint, "closestEdge": closestEdge})
 
+        df["idTups"] = list(zip(df['ids'], riverID))
         df.apply(
             lambda x:
-            utils.graph.add_to_graph(
+            graph.add_to_graph(
                 self.__river_network,
                 col_name_graph,
-                x["ids"],
+                x["idTups"],
                 x["closestPoint"],
                 x["closestEdge"],
                 distance_cutoff=max_risk_distance,
@@ -216,7 +241,7 @@ class RiskMap():
         )
         return closestPoint
 
-    # Add risk to map
+    # Calculate risk from info on map
     def add_risk(self,
                  info_col: str,
                  risk_name: str,
@@ -256,8 +281,8 @@ class RiskMap():
             If the col_name_risk doesn't exist in the riskmap, it asks the user to generate it
         """
 
-        Risk = utils.graph.add_risk(
-            self.__river_network,
+        Risk = graph.add_risk(
+            self,
             info_col,
             risk_name,
             risk_method,
@@ -395,7 +420,8 @@ class RiskMap():
             # Add the csos within a certain distance of the sensor point
             covered = {}
             for item in riskList2:
-                idscovered = [id for id,dist in self.__river_network.nodes[(sensor_loc.x,sensor_loc.y)][item["info_col"]].items() if dist<= sensor_coverage_dist]
+                idscovered = [id for id, dist in self.__river_network.nodes[(
+                    sensor_loc.x, sensor_loc.y)][item["info_col"]].items() if dist <= sensor_coverage_dist]
                 if "ids_to_ignore" not in item:
                     item["ids_to_ignore"] = idscovered
                 else:
