@@ -30,7 +30,7 @@ class RiskMap():
     This class provides methods to process river data, construct river networks, and
     analyze risk propagation from point locations along the river network.
 
-    All work is done in EPSG 3857
+    All work is done in EPSG 27700
 
     Parameters
     ----------
@@ -57,7 +57,7 @@ class RiskMap():
         if not id_col in riversdf.columns:
             raise ValueError(
                 f"River id column [{id_col}] not in river dataframe columns")
-        riversdf = riversdf.to_crs(epsg=3857).rename(
+        riversdf = riversdf.to_crs(epsg=27700).rename(
             columns={id_col: "riverID"})
         self.__rivers: gpd.GeoDataFrame = riversdf
 
@@ -103,7 +103,7 @@ class RiskMap():
         else:
             return self.__rivers
 
-    def get_river_network(self, copy: bool = True) -> nx.Graph | None:
+    def get_river_network(self, copy: bool = True) -> nx.DiGraph | None:
         """get_river_network returns the river network as a NetworkX graph.
 
         Parameters
@@ -121,7 +121,7 @@ class RiskMap():
         if copy:
             return self.__river_network.copy()
         else:
-            return self.__river_network
+            return self.__river_network.copy(as_view=True)
 
     def get_risk_map(self) -> gpd.GeoDataFrame | None:
         """
@@ -218,7 +218,7 @@ class RiskMap():
         """
         if geometry.crs != self.__rivers_split.crs:
             raise ValueError(
-                "Points are not in EPSG:3857 CRS which is used by the class")
+                "Points are not in EPSG:27700 CRS which is used by the class")
 
         closestPoint, closestEdge, riverID = utils.rivers.add_location_on_river_and_closest_edge(self.__rivers_split,
                                                                                                  geometry, max_dist_from_river)
@@ -247,7 +247,7 @@ class RiskMap():
                  risk_name: str,
                  risk_method: Callable,
                  distance_scaling: Callable,
-                 aggregation_method: Callable = sum,
+                 aggregation_method: str = 'sum',
                  ids_to_ignore: list = [],
                  inplace: bool = True,
                  ) -> gpd.GeoDataFrame | None:
@@ -298,7 +298,7 @@ class RiskMap():
             gdf = gdf.reset_index()
             gdf.set_geometry(gdf.apply(lambda x: shapely.Point(
                 x["level_0"], x["level_1"]), axis=1), inplace=True)
-            gdf.set_crs(epsg=3857, inplace=True)
+            gdf.set_crs(epsg=27700, inplace=True)
             gdf.drop(columns=["level_0", "level_1"], inplace=True)
             return gdf
 
@@ -357,7 +357,7 @@ class RiskMap():
         else:
             risks["Risk"] = risks.apply(lambda x: aggregation_method(
                 [x[item["risk_name"]] for item in risk_list]), axis=1)
-            return gpd.GeoDataFrame(risks, geometry="geometry", crs="EPSG:3857")
+            return gpd.GeoDataFrame(risks, geometry="geometry", crs="EPSG:27700")
 
     # Optimization
 
@@ -431,8 +431,8 @@ class RiskMap():
             covered["geometry"] = sensor_loc
 
             sensors = pd.concat([sensors, gpd.GeoDataFrame(
-                covered, geometry="geometry", crs="EPSG:3857")], ignore_index=True)
-            sensors = sensors.set_crs(epsg=3857)
+                covered, geometry="geometry", crs="EPSG:27700")], ignore_index=True)
+            sensors = sensors.set_crs(epsg=27700)
             sensors.index = sensors.index+1
 
             # Remove the CSOs from the risk calculation

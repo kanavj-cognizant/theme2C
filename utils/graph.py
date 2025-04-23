@@ -2,7 +2,6 @@ import networkx as nx
 import numpy as np
 import shapely
 from collections.abc import Callable
-from RiskMap import RiskMap
 from collections import defaultdict
 
 
@@ -255,7 +254,7 @@ def undirected_graph_bfs(graph: nx.Graph, current_nodes: list[tuple], colName: s
 
 
 def add_risk(
-    riskmap: RiskMap,
+    riskmap,
     info_col: str,
     risk_name: str,
     risk_method: str,
@@ -367,8 +366,8 @@ def integrate_field(graph: nx.DiGraph, field: str, outputName: str = None) -> No
     return
 
 
-def integrate_field_product(graph: nx.DiGraph, field1: str, field2: str, outputName: str = None) -> None:
-    """integrate_field_product takes 2 fields and calculates the integral of their product
+def integrate_nn_field_product(graph: nx.DiGraph, field1: str, field2: str, outputName: str = None) -> None:
+    """integrate_nn_field_product takes 2 fields defined on the graph nodes and calculates the integral of their product
     assuming a linear appoximation of the 2 fields between nodes and puts them on the
     [ field1 + "_" + field2 + "_" + "int"] field on the edges.
 
@@ -391,4 +390,110 @@ def integrate_field_product(graph: nx.DiGraph, field1: str, field2: str, outputN
                 field2, 0), graph.nodes[node].get(field2, 0)
             graph[node][child][outputName] = (
                 f1*g1/3 + f1*g2/6 + f2*g1/6 + f2*g2/3)*graph[node][child]["mm_len"]
+    return
+
+
+def integrate_ne_field_product(graph: nx.DiGraph, nField: str, eField: str, outputName: str = None) -> None:
+    """integrate_ne_field_product take a field on the node and one on the edges, and integrates their
+    product over the graph edges.
+
+    Parameters
+    ----------
+    graph : nx.DiGraph
+        Graph in question
+    nField : str
+        The name of the field on the nodes
+    eField : str
+        The name of the field on the edges
+    outputName : str, optional
+        The name of the output field on the edges, by default nField + "_" + eField + "_int"
+    """
+    if outputName is None:
+        outputName = nField + "_" + eField + "_int"
+    for node in graph.nodes:
+        for child in graph.successors(node):
+            graph[node][child][outputName] = graph[node][child][eField] * (
+                graph.nodes[node].get(nField, 0) +
+                graph.nodes[child].get(nField, 0)
+            ) * graph[node][child]["mm_len"] / 2
+    return
+
+
+def difference_field(graph: nx.DiGraph, field: str, outputName: str = None) -> None:
+    """difference_field takes the field on the nodes and adds the difference of the
+    field to the nodes with the difference being defined as node - node_predecessor.
+
+    Note: On points with multiple predecessors, if one of the differences is negative, the
+    derivative is defined as the mean of the negative difference. If all difference are
+    positive, the difference is defined as the mean of the positive difference.
+
+    Parameters
+    ----------
+    graph : nx.DiGraph
+        The directed graph
+    field : str
+        The name of the field
+    outputName : str, optional
+        The name of the output on the graph to be stored, by default [field] + "_diff"
+    """
+    if outputName is None:
+        outputName = field + '_diff'
+    for node in graph.nodes:
+        diff = []
+        for i, parent in enumerate(graph.predecessors(node)):
+            diff.append((graph.nodes[node].get(
+                field, 0) - graph.nodes[parent].get(field, 0)))
+        diff = np.array(diff)
+        if not len(diff):
+            difference = 0
+        elif (diff < 0).any():
+            difference = np.mean(diff[diff < 0])
+        else:
+            difference = np.mean(diff)
+        graph.nodes[node][outputName] = difference
+    return
+
+
+def func_field_e(graph: nx.DiGraph, func: Callable, field: str, outputName: str = None) -> None:
+    """abs_field takes the field on the edges and adds the output of the function
+    to the edges
+
+    Parameters
+    ----------
+    graph : nx.DiGraph
+        The directed graph
+    func : Callable
+        The function to apply to the field
+    field : str
+        The name of the field on the edges
+    outputName : str, optional
+        The name of the output on the graph to be stored, by default [field] + "_abs"
+    """
+    if outputName is None:
+        outputName = field + '_abs'
+    for edge in graph.edges:
+        graph[edge[0]][edge[1]][outputName] = func(
+            graph[edge[0]][edge[1]].get(field, 0))
+    return
+
+
+def func_field_n(graph: nx.DiGraph, func: Callable, field: str, outputName: str = None) -> None:
+    """abs_field takes the field on the nodes and adds the output of the function
+    to the nodes
+
+    Parameters
+    ----------
+    graph : nx.DiGraph
+        The directed graph
+    func : Callable
+        The function to apply to the field
+    field : str
+        The name of the field on the nodes
+    outputName : str, optional
+        The name of the output on the graph to be stored, by default [field] + "_abs"
+    """
+    if outputName is None:
+        outputName = field + '_abs'
+    for node in graph.nodes:
+        graph.nodes[node][outputName] = func(graph.nodes[node].get(field, 0))
     return
