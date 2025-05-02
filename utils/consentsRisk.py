@@ -29,14 +29,14 @@ wwtw_join = wwtw_join.join(determinands[(determinands["DETE"].str.contains("Flow
     determinands["CODE"] == "MAXIMUM VALUE")]["VALUE"], how="left")
 wwtw_join.rename(columns={"VALUE": "DWF"}, inplace=True)
 
-wwtw_join["P"].fillna(WWTW_PHOSPHORUS_FILL_VALUE, inplace=True)
-wwtw_join["DWF"].fillna(WWTW_DWF_FILL_VALUE, inplace=True)
+wwtw_join.fillna({"P":WWTW_PHOSPHORUS_FILL_VALUE}, inplace=True)
+wwtw_join.fillna({"DWF":WWTW_DWF_FILL_VALUE}, inplace=True)
 
 ################################################################################################################
 
 cso_join = gpd.read_parquet(
     "gs://rdmai_dev_data/cleansed/Theme2CD/CSO_Annual_2024_Weir.parquet")
-cso_join["Weir Setting"].fillna(CSO_WEIR_SETTING_FILL_VALUE, inplace=True)
+cso_join.fillna({"Weir Setting":CSO_WEIR_SETTING_FILL_VALUE}, inplace=True)
 
 ################################################################################################################
 

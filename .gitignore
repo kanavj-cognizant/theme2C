@@ -1,6 +1,8 @@
 # Project Specific
 # gcloud_stuff.ipynb
 *.out
+cache/
+wbe/
 
 # Vscode
 .vscode/
