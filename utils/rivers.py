@@ -103,7 +103,7 @@ def river_to_graph(rivers: gpd.GeoDataFrame) -> nx.DiGraph:
         approach="primal",
         directed=True,  # To indicate flow direction
         multigraph=False,
-    )  # type: ignore
+    )
 
     # Create a dictionary to store edge IDs for each node
     node_edge_ids = defaultdict(set)

@@ -289,7 +289,7 @@ class RiskMap:
         )
 
         mapping_points["poly"] = mapping_points["poly"].fillna(
-            shapely.geometry.Polygon()  # type: ignore
+            shapely.geometry.Polygon()
         )
         PM_mapping = mapping_points.copy()
 
@@ -300,7 +300,7 @@ class RiskMap:
             columns=["FID_poly", "FID_to_join", "river_index"]
         )
 
-        net: nx.DiGraph = self.__river_network.copy()  # type: ignore
+        net: nx.DiGraph = self.__river_network.copy()
         start_nodes = []
         for node in net.nodes:
             if not len(list(net.successors(node))):
@@ -353,7 +353,7 @@ class RiskMap:
             "FID_poly"
         ).agg(
             {"poly": shapely.union_all}
-        )  # type: ignore
+        )
         joined_catchments = joined_catchments.set_geometry("poly").set_crs(
             rmap.crs
         )

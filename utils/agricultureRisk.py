@@ -29,10 +29,25 @@ AGRICULTURE_LOAD_LOOKUP = pd.read_csv(
 LIVESTOCK_EXCRETA = pd.read_csv(
     LIVESTOCK_EXCRETA_PATH, index_col=["OPCAT_ID", "crop_category"]
 )
-ENG_CATCH = gpd.read_file(
-    "https://environment.data.gov.uk/catchment-planning/England/shapefile.zip",
-    layer="WFD_Surface_Water_Operational_Catchments_Cycle_3",
-).astype({"OPCAT_ID": "int16"})
+_eng_catch_path = DATA_FOLDER.joinpath("England_shapefile.zip")
+if _eng_catch_path.exists():
+    ENG_CATCH = gpd.read_file(
+        _eng_catch_path,
+        layer="WFD_Surface_Water_Operational_Catchments_Cycle_3",
+    ).astype({"OPCAT_ID": "int16"})
+else:
+    import io
+
+    import requests
+
+    _resp = requests.get(
+        "https://environment.data.gov.uk/catchment-planning/England/shapefile.zip",
+        timeout=60,
+    )
+    ENG_CATCH = gpd.read_file(
+        io.BytesIO(_resp.content),
+        layer="WFD_Surface_Water_Operational_Catchments_Cycle_3",
+    ).astype({"OPCAT_ID": "int16"})
 EXCRETA_LOAD = pd.read_csv(
     EXCRETA_LOAD_PATH,
     index_col=[

@@ -425,7 +425,7 @@ def split_consents(
     """
     # Split consents into WwTWs and CSOs
 
-    rec_env_codes = rec_env_codes = [
+    rec_env_codes = [
         1,  # Freshwater River
         6,  # Canal
         9,  # Estuary
