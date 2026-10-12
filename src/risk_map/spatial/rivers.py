@@ -5,8 +5,13 @@ import numpy as np
 import shapely
 from shapely.geometry import LineString, Point
 
+from risk_map.config.models import DEFAULT_CONFIG
 
-def split_rivers(rivers: gpd.GeoDataFrame, resolution: float) -> gpd.GeoDataFrame:
+
+def split_rivers(
+    rivers: gpd.GeoDataFrame,
+    resolution: float = DEFAULT_CONFIG.river_resolution,
+) -> gpd.GeoDataFrame:
     """Split river LineStrings into smaller segments up to resolution length.
 
     Preserves attributes from original river geometries.
@@ -48,7 +53,7 @@ def split_rivers(rivers: gpd.GeoDataFrame, resolution: float) -> gpd.GeoDataFram
 def snap_points_to_rivers(
     points: gpd.GeoDataFrame,
     rivers: gpd.GeoDataFrame,
-    max_distance: float,
+    max_distance: float = DEFAULT_CONFIG.max_outfall_distance,
 ) -> gpd.GeoDataFrame:
     """Snap point sources to the nearest river reach within max_distance.
 

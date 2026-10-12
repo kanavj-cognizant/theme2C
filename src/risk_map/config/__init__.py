@@ -5,9 +5,10 @@ from risk_map.config.constants import (
     PollutantParameters,
 )
 from risk_map.config.enums import AggregationMethod, PollutantType, SourceType
-from risk_map.config.models import PipelineConfig
+from risk_map.config.models import DEFAULT_CONFIG, PipelineConfig
 
 __all__ = [
+    "DEFAULT_CONFIG",
     "NH4_CONSTANTS",
     "POLLUTANT_LOOKUP",
     "P_CONSTANTS",

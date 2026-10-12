@@ -117,153 +117,30 @@ src/
 
 ---
 
-## 4. Domain Types & Strict Configuration
+---
 
-### 4.1 Enums (`config/enums.py`)
-```python
-from enum import Enum
+## 4. Subsystem Documentation
 
+Detailed architectural specifications, mathematical formulations, and usage contracts are broken down per package layer:
 
-class PollutantType(str, Enum):
-    P = "P"  # Total Phosphorus / Orthophosphate
-    NH4 = "NH4"  # Ammoniacal Nitrogen as N
-
-
-class SourceType(str, Enum):
-    CSO = "CSO"
-    WWTW = "WWTW"
-    AGRICULTURE = "AGRICULTURE"
-    LIVESTOCK = "LIVESTOCK"
-    URBAN_ROAD = "URBAN_ROAD"
-    URBAN_BUILDING = "URBAN_BUILDING"
-
-
-class AggregationMethod(str, Enum):
-    SUM = "sum"
-    MEAN = "mean"
-    FLOW_WEIGHTED = "flow_weighted"
-```
-
-### 4.2 Configuration Models (`config/models.py`)
-```python
-from pathlib import Path
-from pydantic import BaseModel, Field, PositiveFloat
-
-
-class PipelineConfig(BaseModel):
-    river_resolution: PositiveFloat = 300.0
-    max_outfall_distance: PositiveFloat = 700.0
-    min_catchment_area: PositiveFloat = 20000.0
-    data_dir: Path = Field(default_factory=lambda: Path("data"))
-```
-
-### 4.3 Flow & Velocity Estimation Protocol (`spatial/flow.py`)
-To isolate river flow and travel-speed estimation from global pipeline configuration:
-```python
-from typing import Protocol
-import geopandas as gpd
-import polars as pl
-
-
-class FlowEstimator(Protocol):
-    """Abstract protocol for calculating river reach flow (m³/s) and flow speed (m/s)."""
-
-    def estimate_flow(self, rivers: gpd.GeoDataFrame) -> pl.Series: ...
-
-    def estimate_flow_speed(self, rivers: gpd.GeoDataFrame) -> float | pl.Series: ...
-
-
-class LinearAccumulationFlowEstimator:
-    """Baseline flow estimator using upstream accumulated length and constant flow speed."""
-
-    def __init__(
-        self,
-        coeff: float = 1.476e-5,
-        accum_col: str = "US_Accum",
-        flow_speed: float = 0.77,
-    ):
-        self.coeff = coeff
-        self.accum_col = accum_col
-        self.flow_speed = flow_speed
-
-    def estimate_flow(self, rivers: gpd.GeoDataFrame) -> pl.Series:
-        return pl.Series("flow", rivers[self.accum_col].to_numpy() * self.coeff)
-
-    def estimate_flow_speed(self, rivers: gpd.GeoDataFrame) -> float | pl.Series:
-        return self.flow_speed
-```
-*Can be swapped later for neural network runoff, hydrodynamic Manning routing (variable velocity by reach), or gauge assimilation models without changing the river network graph.*
+- **Configuration, Enums & Physical Parameters**: [refactor/02-config.md](refactor/02-config.md)  
+  Documents [src/risk_map/config/enums.py](src/risk_map/config/enums.py), [src/risk_map/config/models.py](src/risk_map/config/models.py), and [src/risk_map/config/constants.py](src/risk_map/config/constants.py).
+- **Uncertainty & Measurement Model**: [refactor/03-uncertainty.md](refactor/03-uncertainty.md)  
+  Documents error propagation, decay equations, and safe zero-flow handling in [src/risk_map/models/uncertainty.py](src/risk_map/models/uncertainty.py).
+- **Spatial Hydrology & River Geometry**: [refactor/04-spatial.md](refactor/04-spatial.md)  
+  Documents the `FlowEstimator` protocol and vectorized reach snapping in [src/risk_map/spatial/flow.py](src/risk_map/spatial/flow.py) and [src/risk_map/spatial/rivers.py](src/risk_map/spatial/rivers.py).
+- **River Network Graph & Topological Sweep**: [refactor/05-graph.md](refactor/05-graph.md)  
+  Documents primal graph construction, single-pass mass transport, and source attribution in [src/risk_map/graph/network.py](src/risk_map/graph/network.py) and [src/risk_map/graph/propagation.py](src/risk_map/graph/propagation.py).
 
 ---
 
-## 5. Mathematical Formulation & Single-Pass Source Attribution
-
-### 5.1 1D Steady-State Advection-Decay
-Along a river edge $e = (u \to v)$ of length $\Delta L$ with flow velocity $v_r$ and first-order degradation coefficient $k$:
-$$\alpha(e) = \exp\left(-\frac{k \cdot \Delta L}{v_r}\right)$$
-
-### 5.2 Source Apportionment Vector
-Each river node $n$ maintains an attribution dictionary of pollutant mass loads:
-$$\mathbf{L}_n = \{ s: L_{n, s} \pm \sigma_{L_{n, s}} \} \quad (\text{g/s})$$
-where $s$ is the unique source identifier (e.g. `"CSO_102"`, `"WWTW_A"`, `"DIFFUSE_AGRI_P"`).
-
-### 5.3 Topological Sweep Algorithm
-In directed acyclic river networks (DAG sorted from headwaters to sea):
-1. **Accumulate Upstream Mass**:
-   $$L_{n, s}^{(\text{incoming})} = \sum_{p \in \text{predecessors}(n)} L_{p, s} \times \alpha(p \to n)$$
-2. **Add Local Injections**:
-   $$L_{n, s} = L_{n, s}^{(\text{incoming})} + L_{n, s}^{(\text{local injection})}$$
-3. **Dilution & Risk at Node $n$**:
-   Given river flow $Q_n \pm \sigma_{Q_n}$ ($\text{m}^3/\text{s}$):
-   $$C_{n, s} = \frac{L_{n, s}}{Q_n} \quad (\text{mg/l})$$
-   $$\text{Risk}_{n, s} = \frac{C_{n, s}}{\text{Guideline}} \times 100 \quad (\%)$$
-   $$\text{Total Risk}_n = \sum_s \text{Risk}_{n, s}$$
-   $$\text{Attribution Share}_{n, s} = \frac{L_{n, s}}{\sum_j L_{n, j}} \times 100\%$$
-
-*Every step naturally maintains first-order uncertainties via `uncertainties.ufloat`.*
-
----
-
-## 6. Reactive Scenario DAG & Caching
-
-```mermaid
-stateDiagram-v2
-    [*] --> IngestData
-    IngestData --> DelineateCatchments: Base Pipeline (Heavy)
-    DelineateCatchments --> SegmentRivers
-    SegmentRivers --> SnapPointSources
-    SnapPointSources --> BuildDiffuseLoads
-    BuildDiffuseLoads --> CacheBaseArtifacts
-
-    state CacheBaseArtifacts {
-        BaseCatchments
-        BaseRiverGraph
-        BaseSnappedSources
-        BaseDiffuseLoads
-    }
-
-    CacheBaseArtifacts --> ApplyScenarioConfig: Fast Path (< 100ms)
-    ApplyScenarioConfig --> PropagateLoadsTopologically
-    PropagateLoadsTopologically --> AggregateRiskAndUncertainties
-    AggregateRiskAndUncertainties --> RiskResult
-```
-
-### Invalidation Rules:
-- If `catchment_mask` or `river_resolution` changes: Invalidate all artifacts.
-- If only `ScenarioConfig` changes (e.g. toggle CSO off):
-  - Reuse `BaseCatchments`, `BaseRiverGraph`, `BaseSnappedSources`, and `BaseDiffuseLoads`.
-  - Filter active point loads in memory.
-  - Re-run the topological sweep. Runtime: **~15–50 milliseconds**.
-
----
-
-## 7. Migration & Verification Strategy (TDD & Quality Gates)
+## 5. Migration & Verification Strategy (TDD & Quality Gates)
 
 Every change must pass our unified quality pipeline:
 1. **Ruff Linting**: `ruff check src/ tests/` (imports, bugs, PEP 8 rules).
 2. **Ruff Formatting**: `ruff format --check src/ tests/` (standardized formatting, quote style, indentation).
 3. **Static Type Checking (`ty`)**: `ty check src/` and `ty check tests/` (sound AST type inference, zero type violations).
 4. **Unit Test Suite (`pytest`)**: `pytest tests/unit/` (fast synthetic unit tests running in $< 0.5$ s).
-5. **Characterization Tests (Golden Master)**: `pytest -m legacy` (verifying full outputs against the legacy golden baseline).
+5. **Characterization Tests (Golden Master)**: `pytest -m legacy` (verifying full outputs against the legacy golden baseline in [tests/fixtures/browney/golden_riskmap.parquet](tests/fixtures/browney/golden_riskmap.parquet)).
 
-A convenience script is provided at `scripts/check.sh` to run all gates in one command.
+A convenience script is provided at [scripts/check.sh](scripts/check.sh) to run all quality gates in one command, and is automatically enforced via the pre-commit git hook.

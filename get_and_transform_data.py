@@ -198,10 +198,10 @@ def get_consents_data(
                     "mdb-export",
                     str(
                         consentsdb_path.joinpath(
-                            
+
                                 "Consented Discharges to Controlled"
                                 " Waters with Conditions.accdb"
-                            
+
                         )
                     ),
                     "determinands",
@@ -216,10 +216,10 @@ def get_consents_data(
                     "mdb-export",
                     str(
                         consentsdb_path.joinpath(
-                            
+
                                 "Consented Discharges to Controlled"
                                 " Waters with Conditions.accdb"
-                            
+
                         )
                     ),
                     "consents_active",

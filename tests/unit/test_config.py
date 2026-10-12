@@ -44,13 +44,14 @@ def test_pipeline_config_defaults_and_validation():
     assert config.river_resolution == 300.0
     assert config.max_outfall_distance == 700.0
     assert config.min_catchment_area == 20000.0
+    assert config.min_flow_threshold == 1e-6
 
     # Test positive constraint validation
     with pytest.raises(ValidationError):
         PipelineConfig(river_resolution=-10.0)
 
     with pytest.raises(ValidationError):
-        PipelineConfig(river_resolution=0.0)
+        PipelineConfig(min_flow_threshold=-1.0)
 
 
 def test_pollutant_physical_constants():

@@ -16,8 +16,8 @@ def test_split_rivers_discretization():
         },
         crs="EPSG:27700",
     )
-    # Resolution of 300m -> segments of 300, 300, 300, 100m -> 4 segments
-    split = split_rivers(rivers, resolution=300.0)
+    # Default resolution (300m) -> segments of 300, 300, 300, 100m -> 4 segments
+    split = split_rivers(rivers)
 
     assert len(split) == 4
     assert (split["riverID"] == 1).all()

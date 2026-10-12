@@ -97,7 +97,7 @@ def calculate_decay(
     flow_speed: float,
     degradation_rate: float,
 ) -> Measurement:
-    """Calculate exponential pollutant decay over a river segment using SI units (m, m/s, s^-1)."""
+    """Calculate exponential pollutant decay over a river segment"""
     m_load = to_measurement(load)
     if flow_speed <= 0 or length <= 0:
         return m_load
