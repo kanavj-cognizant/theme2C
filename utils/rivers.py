@@ -1,3 +1,4 @@
+import itertools
 from collections import defaultdict
 
 import geopandas as gpd
@@ -173,7 +174,7 @@ def split_rivers(
 
         return [
             shapely.LineString([p1, p2])
-            for p1, p2 in zip(points[:-1], points[1:])
+            for p1, p2 in itertools.pairwise(points)
         ]
 
     rivers2["geometry2"] = rivers2.geometry.apply(split_linestring)
@@ -191,7 +192,7 @@ def split_rivers(
 FLOW_ACCUM_COEFF = 1.476e-5  # m2/s
 
 
-def linear_flow(accum_len: float, flow_coeff: float = None) -> float:
+def linear_flow(accum_len: float, flow_coeff: float | None = None) -> float:
     """linear_flow gives a linear approximation of the river flow(m3/sec)
     given the upstream accumulated length
 

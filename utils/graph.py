@@ -173,7 +173,6 @@ def directed_graph_bfs(
                 # Add to new_curr
                 new_curr.append(child)
         curr_nodes = new_curr
-    return
 
 
 def add_point_risk(

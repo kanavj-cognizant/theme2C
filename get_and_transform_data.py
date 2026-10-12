@@ -195,10 +195,10 @@ def get_consents_data(
                     "mdb-export",
                     str(
                         consentsdb_path.joinpath(
-                            (
+                            
                                 "Consented Discharges to Controlled"
                                 " Waters with Conditions.accdb"
-                            )
+                            
                         )
                     ),
                     "determinands",
@@ -213,10 +213,10 @@ def get_consents_data(
                     "mdb-export",
                     str(
                         consentsdb_path.joinpath(
-                            (
+                            
                                 "Consented Discharges to Controlled"
                                 " Waters with Conditions.accdb"
-                            )
+                            
                         )
                     ),
                     "consents_active",
@@ -277,7 +277,7 @@ def get_rivers_data(repeat: bool = False) -> gpd.GeoDataFrame:
             )
         except Exception as e:
             logger.error(f"Alternate method failed: {e}")
-            raise e
+            raise
     b = bytes(req.content)
     with fiona.BytesCollection(b, layer="ORN") as f:
         crs = f.crs

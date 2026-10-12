@@ -1,6 +1,6 @@
 import os
 import pathlib
-from typing import Callable
+from collections.abc import Callable
 
 import geopandas as gpd
 import pandas as pd

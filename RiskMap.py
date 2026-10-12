@@ -361,7 +361,6 @@ class RiskMap:
         self.__joined_catchments = joined_catchments
         self.__map_poly_join = map_poly_join
         self.__mapping_points = mapping_points
-        return
 
     def catchment_to_river_load(
         self,
@@ -420,7 +419,7 @@ class RiskMap:
     def __graph_to_gdf(self) -> gpd.GeoDataFrame:
         def convert_to_list(x: dict):
             if isinstance(x, dict):
-                return list(zip(x.keys(), x.values()))
+                return list(x.items())
             elif isinstance(x, set):
                 return list(x)
             elif isinstance(x, list):
@@ -556,7 +555,6 @@ class RiskMap:
             else:
                 netw.nodes[node][info_col_name] = 0
         self.__construct_risk_map()
-        return
 
     # Calculate risk from info on map
     def add_point_risk(
