@@ -9,9 +9,12 @@ import fiona
 import geopandas as gpd
 import numpy as np
 import pandas as pd
+import pyarrow.parquet as pq
+import pyogrio
 import requests
 import shapely
 from fuzzywuzzy import fuzz
+from geopandas.io.arrow import _geopandas_to_arrow
 from OSGridConverter import grid2latlong
 
 # Configure logger
@@ -643,14 +646,35 @@ def get_OS_data(repeat: bool = False):
     roads.to_parquet(
         DATA_DIR.joinpath("os_roads.parquet"), write_covering_bbox=True
     )
-    buildings = gpd.read_file(
-        DATA_DIR.joinpath("opmplc_gb.gpkg"),
-        layer="building",
-        use_arrow=True,
-    ).to_crs(epsg=OUTPUT_EPSG)[["geometry"]]
-    buildings.to_parquet(
-        DATA_DIR.joinpath("os_buildings.parquet"), write_covering_bbox=True
+    del roads
+
+    logger.info("Processing OS buildings in batches...")
+    buildings_parquet_path = DATA_DIR.joinpath("os_buildings.parquet")
+    building_info = pyogrio.read_info(
+        DATA_DIR.joinpath("opmplc_gb.gpkg"), layer="building"
     )
+    total_features = building_info["features"]
+    batch_size = 250_000
+
+    writer = None
+    try:
+        for skip in range(0, total_features, batch_size):
+            chunk = pyogrio.read_dataframe(
+                DATA_DIR.joinpath("opmplc_gb.gpkg"),
+                layer="building",
+                columns=[],
+                skip_features=skip,
+                max_features=batch_size,
+            )
+            if chunk.crs is None or chunk.crs.to_epsg() != OUTPUT_EPSG:
+                chunk = chunk.to_crs(epsg=OUTPUT_EPSG)
+            table = _geopandas_to_arrow(chunk, write_covering_bbox=True)
+            if writer is None:
+                writer = pq.ParquetWriter(buildings_parquet_path, table.schema)
+            writer.write_table(table)
+    finally:
+        if writer is not None:
+            writer.close()
 
     # Remove unneeded files
     os.remove(DATA_DIR.joinpath("os_open_built_up_areas.gpkg"))
