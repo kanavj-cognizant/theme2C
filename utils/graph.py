@@ -1,138 +1,111 @@
+from collections import defaultdict
+from collections.abc import Callable
+
 import networkx as nx
 import numpy as np
 import shapely
-from collections.abc import Callable
-from collections import defaultdict
 
 
 def add_to_graph(
     graph: nx.DiGraph,
-    fieldName: str,
-    ID: int | str | tuple[str, str],
+    field_name: str,
+    id: int | str | tuple[str, float],
     p: shapely.Point,
     edge: tuple,
     distance_cutoff: float,
-    directed: bool,
     both_ways: bool = True,
     is_node: bool = False,
 ) -> None:
-    """add_to_graph takes in points and adds their distance from the nodes to the graph on the nodes of the graph.
-    This is achieved through a BFS and works for directed and undirected graphs.
-    For each node, there will be a set of tuples of (ID,Dist) associated with the input point.
+    """
+    Add points and their distances from nodes to the graph.
+
+    This function performs a BFS to add distance information to the graph's
+    nodes.
 
     Parameters
     ----------
     graph : nx.DiGraph
-        The graph to add the information on
-    fieldName : str
-        The field in the node attributes to add the information on
-    ID : int | str
-        The ID of the point
+        The graph to update with distance information.
+    field_name : str
+        The field in the node attributes to store the information.
+    id : int, str, or tuple[str, float]
+        The identifier of the point and the flow at the point.
     p : shapely.Point
-        A point object representing the location of the point. It is assumed the point is on an edge
+        A point object representing the location of the point.
     edge : tuple
-        The edge corresponding to that point in the graph
+        The edge corresponding to the point in the graph.
     distance_cutoff : float
-        The distance cutoff to perform the BFS with
-    directed : bool
-        To indicate whether the graph is directed or not
+        The maximum distance for BFS traversal.
     both_ways : bool, optional
-        To indicate for a directed graph, to perform 'downstream' or both 'downstream' and 'upstream', by default True
+        Whether to traverse both upstream and downstream.
+        Default is True.
     is_node : bool, optional
-        To indicate if the point is a node of the graph, by default False
+        Whether the point is a node in the graph. Default is False.
     """
     if (edge is None or p is None) and not is_node:
         return
 
-    if directed:
-        if is_node:
-            next_node = (p.x, p.y)
-            next_dist = 0
-        else:
-            # Loop over successors, add data
-            next_node = edge[1]
-            # Find distance between geometry and first point
-            next_dist = p.distance(shapely.Point(next_node))
-
-        # Check if distance lesser than threshold
-        if next_dist < distance_cutoff:
-            # Get prev data
-            dataBefore = graph.nodes(data=fieldName)[next_node]
-            # If exists, add data
-            if dataBefore is not None and isinstance(dataBefore, dict):
-                dataBefore[ID] = next_dist
-            # If doesn't exist, add new dict
-            else:
-                nx.set_node_attributes(
-                    graph, {next_node: {ID: next_dist}}, fieldName)
-
-            # Loop over children nodes
-            directed_graph_bfs(graph, next_node, fieldName,
-                               distance_cutoff, ID, True)
-
-        if not both_ways:
-            return
-
-        # Loop over predecessors
-        if is_node:
-            prev_node = (p.x, p.y)
-            prev_dist = 0
-        else:
-            prev_node = edge[0]
-            prev_dist = -p.distance(shapely.Point(prev_node))
-        if prev_dist > -distance_cutoff:
-            dataBefore = graph.nodes(data=fieldName)[prev_node]
-            if dataBefore is not None and isinstance(dataBefore, dict):
-                dataBefore[ID] = prev_dist
-            else:
-                nx.set_node_attributes(
-                    graph, {prev_node: {ID: prev_dist}}, fieldName)
-            directed_graph_bfs(graph, prev_node, fieldName,
-                               distance_cutoff, ID, False)
-        return
-
+    if is_node:
+        next_node = (p.x, p.y)
+        next_dist = 0
     else:
-        traversed = set()
+        # Loop over successors, add data
+        next_node = edge[1]
+        # Find distance between geometry and first point
+        next_dist = p.distance(shapely.Point(next_node))
 
-        curr_nodes = []
-        if is_node:
-            next_node = (p.x, p.y)
-            next_dist = 0
+    # Check if distance lesser than threshold
+    if next_dist < distance_cutoff:
+        # Get prev data
+        data_before = graph.nodes[next_node].get(field_name)
+        # If exists, add data
+        if data_before is not None and isinstance(data_before, dict):
+            data_before[id] = next_dist
+        # If doesn't exist, add new dict
         else:
-            next_node = edge[1]
-            next_dist = p.distance(shapely.Point(next_node))
-        # Check if distance lesser than threshold
-        if next_dist < distance_cutoff:
-            # Get prev data
-            dataBefore = graph.nodes(data=fieldName)[next_node]
-            # If exists, add data
-            if dataBefore is not None and isinstance(dataBefore, dict):
-                dataBefore[ID] = next_dist
-            # If doesn't exist, add new dict
-            else:
-                nx.set_node_attributes(
-                    graph, {next_node: {ID: next_dist}}, fieldName)
-            curr_nodes.append(next_node)
-            traversed.add(next_node)
-        prev_node = edge[0]
-        prev_dist = p.distance(shapely.Point(prev_node))
-        if prev_dist < distance_cutoff:
-            dataBefore = graph.nodes(data=fieldName)[prev_node]
-            if dataBefore is not None and isinstance(dataBefore, dict):
-                dataBefore[ID] = prev_dist
-            else:
-                nx.set_node_attributes(
-                    graph, {prev_node: {ID: prev_dist}}, fieldName)
-            curr_nodes.append(prev_node)
-            traversed.add(prev_node)
-        curr_nodes = directed_graph_bfs(
-            graph, curr_nodes,  fieldName, distance_cutoff, ID, traversed)
+            nx.set_node_attributes(
+                graph, {next_node: {id: next_dist}}, field_name
+            )
+
+        # Loop over children nodes
+        directed_graph_bfs(
+            graph, next_node, field_name, distance_cutoff, id, True
+        )
+
+    if not both_ways:
         return
 
+    # Loop over predecessors
+    if is_node:
+        prev_node = (p.x, p.y)
+        prev_dist = 0
+    else:
+        prev_node = edge[0]
+        prev_dist = -p.distance(shapely.Point(prev_node))
+    if prev_dist > -distance_cutoff:
+        data_before = graph.nodes[prev_node].get(field_name)
+        if data_before is not None and isinstance(data_before, dict):
+            data_before[id] = prev_dist
+        else:
+            nx.set_node_attributes(
+                graph, {prev_node: {id: prev_dist}}, field_name
+            )
+        directed_graph_bfs(
+            graph, prev_node, field_name, distance_cutoff, id, False
+        )
+    return
 
-def directed_graph_bfs(graph: nx.DiGraph, start_node: tuple, colName: str, distance_cutoff: float, ID: int | str, along_direction: bool = True) -> None:
+
+def directed_graph_bfs(
+    graph: nx.DiGraph,
+    start_node: tuple,
+    col_name: str,
+    distance_cutoff: float,
+    id: int | str | tuple[str, float],
+    along_direction: bool = True,
+) -> None:
     """
-    Perform a breadth-first search (BFS) on a directed river network graph to propagate risk information.
+    Perform BFS on a directed graph to propagate risk information.
 
     Parameters
     ----------
@@ -141,13 +114,13 @@ def directed_graph_bfs(graph: nx.DiGraph, start_node: tuple, colName: str, dista
     start_node : tuple
         The starting node for the BFS.
     col_name : str
-        Name of the attribute in the graph nodes where the risk information is stored.
+        The attribute in the graph nodes where risk information is stored.
     distance_cutoff : float
         Maximum distance for risk propagation.
-    id : int | str
+    id : int or str or tuple[str, float]
         Identifier for the point location.
     along_direction : bool, optional
-        Indicates whether to propagate risk along the direction of the graph. Default is True.
+        Whether to propagate risk along the graph's direction. Default is True.
     """
     curr_nodes = [start_node]
 
@@ -162,31 +135,40 @@ def directed_graph_bfs(graph: nx.DiGraph, start_node: tuple, colName: str, dista
 
             for child in children:
                 # Check if already added
-                dataBefore = graph.nodes(data=colName)[child]
-                if dataBefore is not None and ID in dataBefore:
+                data_before = graph.nodes[child].get(col_name)
+                if data_before is not None and id in data_before:
                     continue
 
                 # Check distance
                 if along_direction:
-                    total_dist = graph.nodes(data=colName)[
-                        node][ID] + graph[node][child]["mm_len"]
+                    total_dist = (
+                        graph.nodes[node][col_name][id]
+                        + graph[node][child]["mm_len"]
+                    )
                 else:
-                    total_dist = graph.nodes(data=colName)[
-                        node][ID] - graph[child][node]["mm_len"]
+                    total_dist = (
+                        graph.nodes[node][col_name][id]
+                        - graph[child][node]["mm_len"]
+                    )
 
-                if total_dist >= distance_cutoff or total_dist <= -distance_cutoff:
+                if (
+                    total_dist >= distance_cutoff
+                    or total_dist <= -distance_cutoff
+                ):
                     continue
 
                 # Add data
-                if dataBefore is not None and isinstance(dataBefore, dict):
-                    dataBefore[ID] = total_dist
+                if data_before is not None and isinstance(data_before, dict):
+                    data_before[id] = total_dist
                     nx.set_node_attributes(
-                        graph, {child: dataBefore}, colName)
+                        graph, {child: data_before}, col_name
+                    )
 
                 # If doesn't exist, add new dict
                 else:
                     nx.set_node_attributes(
-                        graph, {child: {ID: total_dist}}, colName)
+                        graph, {child: {id: total_dist}}, col_name
+                    )
 
                 # Add to new_curr
                 new_curr.append(child)
@@ -194,114 +176,55 @@ def directed_graph_bfs(graph: nx.DiGraph, start_node: tuple, colName: str, dista
     return
 
 
-def undirected_graph_bfs(graph: nx.Graph, current_nodes: list[tuple], colName: str, distance_cutoff: float, ID: int | str, traversed: set[tuple],):
-    """
-    Perform a breadth-first search (BFS) on an undirected river network graph to propagate risk information.
-
-    Parameters
-    ----------
-    graph : nx.Graph
-        The undirected graph representing the river network.
-    current_nodes : list[tuple]
-        List of current nodes to process.
-    traversed : set[tuple]
-        Set of nodes that have already been processed.
-    col_name : str
-        Name of the attribute in the graph nodes where the risk information is stored.
-    distance_cutoff : float
-        Maximum distance for risk propagation.
-    id : int | str
-        Identifier for the point location.
-
-    Returns
-    -------
-    list[tuple]
-        List of nodes processed in the current BFS iteration.
-    """
-    while len(current_nodes) > 0:
-        new_current_nodes = []
-        for node in current_nodes:
-            children = [c for c in graph.neighbors(
-                node) if c not in traversed]
-            for child in children:
-                dataBefore = graph.nodes(data=colName)[child]
-                if dataBefore is not None and ID in dataBefore:
-                    continue
-
-                # Check distance
-                total_dist = graph.nodes(data=colName)[
-                    node][ID] + graph[node][child]["mm_len"]
-
-                if total_dist >= distance_cutoff:
-                    continue
-
-                # Add data
-                if dataBefore is not None and isinstance(dataBefore, dict):
-                    dataBefore[ID] = total_dist
-                    nx.set_node_attributes(
-                        graph, {child: dataBefore}, colName)
-
-                # If doesn't exist, add new dict
-                else:
-                    nx.set_node_attributes(
-                        graph, {child: {ID: total_dist}}, colName)
-
-                # Add to new_curr
-                traversed.add(child)
-                new_current_nodes.append(child)
-        current_nodes = new_current_nodes
-    return
-
-
-def add_risk(
+def add_point_risk(
     riskmap,
     info_col: str,
     risk_name: str,
-    risk_method: str,
+    risk_method: Callable,
     distance_scaling: Callable,
-    aggregation_method: str = 'sum',
-    ids_to_ignore: list = [],
+    aggregation_method: str = "flow_avg",
+    ids_to_ignore: list | None = None,
     inplace=True,
-) -> dict[dict[float]] | None:
-    """add_risk adds the risk to a riskmap containing a river graph
+) -> dict[tuple, dict[str, float]] | None:
+    """
+    Add point risk information to a riskmap containing a river graph.
 
     Parameters
     ----------
     riskmap : RiskMap
-        The riskmap to add the risk to
+        The riskmap to update with risk information.
     info_col : str
-        The name of the info column associated with the risk
+        The name of the info column associated with the risk.
     risk_name : str
-        The name of the risk to be stored in the output
+        The name of the risk to store in the output.
     risk_method : Callable
-        The function to calculate risk given an ID
+        Function to calculate risk given an ID and river flow.
     distance_scaling : Callable
-        The distance scaling function to apply to the risk
+        Function to scale the risk based on distance.
     aggregation_method : str, optional
-        The aggregation method of different risks, by default 'sum'
+        Method to aggregate risks. Default is "flow_avg".
     ids_to_ignore : list, optional
-        The IDs to ignore while calculating the risk, by default []
+        IDs to ignore while calculating the risk. Default is [].
     inplace : bool, optional
-        Whether to return a dict of risks or just do in inplace on the graph, by default True
+        Whether to update the graph in place or return a risk dictionary.
+        Default is True.
 
     Returns
     -------
-    dict[dict[float]] | None
-        Returns a dict on the nodes of the risk values as floats to be assigned to the graph or None
+    dict[dict[float]] or None
+        A dictionary of risk values if `inplace` is False, otherwise None.
 
     Raises
     ------
     NotImplementedError
-        If the risk aggregation method is not implemented
+        If the aggregation method is not implemented.
     ValueError
-        If the risk info column isn't present on the graph
+        If the info column is not present in the graph.
     """
-    network = riskmap.get_river_network(copy=False)
-    rivers = riskmap.get_rivers(copy=False)
-
+    network: nx.DiGraph = riskmap.get_river_network(copy=False)
     found = False
     if not inplace:
-        retdict: dict[dict[float]] = defaultdict(dict)
+        retdict: dict[tuple, dict[str, float]] = defaultdict(dict)
 
     for node in network.nodes:
         rsk = []
@@ -309,29 +232,28 @@ def add_risk(
         if info_col in network.nodes[node]:
             found = True
             for id, dist in network.nodes[node][info_col].items():
-                if id[0] in ids_to_ignore:
+                if (ids_to_ignore is not None) and (id[0] in ids_to_ignore):
                     continue
-                riverInfo = rivers.loc[id[1]].to_dict()
-                idrisk = risk_method(id[0], riverInfo)
+                river_flow = id[1]
+                idrisk = risk_method(id[0], river_flow)
                 if idrisk:
-                    rsk.append(idrisk*distance_scaling(dist))
-                    weights.append(riverInfo["Upstream Accumulated Length"])
+                    rsk.append(idrisk * distance_scaling(dist))
+                    weights.append(river_flow)
 
-        if aggregation_method == 'sum':
+        if aggregation_method == "sum":
             agg_risk = np.sum(rsk)
-        elif aggregation_method == 'avg':
+        elif aggregation_method == "avg":
             if not len(rsk):
                 agg_risk = 0
             else:
                 agg_risk = np.mean(rsk)
-        elif aggregation_method == 'w_avg':
-            riverIDs = list(network.nodes[node]["riverID"])
-            accum_len_node = rivers.loc[riverIDs,
-                                        "Upstream Accumulated Length"].max()
-            agg_risk = sum([w*r for w, r in zip(weights, rsk)])/accum_len_node
+        elif aggregation_method == "flow_avg":
+            flow_node = network.nodes[node].get("flow", 0)
+            agg_risk = sum([w * r for w, r in zip(weights, rsk)]) / flow_node
         else:
             raise NotImplementedError(
-                "aggregation_method not in ['sum','avg','w_avg']")
+                "aggregation_method not in ['sum','avg','flow_avg']"
+            )
 
         if inplace:
             network.nodes[node][risk_name] = agg_risk
@@ -346,154 +268,74 @@ def add_risk(
     return
 
 
-def integrate_field(graph: nx.DiGraph, field: str, outputName: str = None) -> None:
-    """integrate_field integrates a given field on the nodes over the edges of the graph
-    and puts the vlaue on the [field+"_int"] field on the edges
+def add_diffuse_risk(
+    netw: nx.DiGraph,
+    info_col: str,
+    risk_name: str,
+    distance_scaling: Callable[[float], float] = lambda x: x,
+    risk_method: Callable[[float], float] = lambda x: x,
+    inplace: bool = True,
+) -> dict[tuple, dict[str, float]] | None:
 
-    Parameters
-    ----------
-    graph : nx.DiGraph
-        Graph with the field values present on every node
-    field : str
-        The key name of the field to integrate
-    """
-    if outputName is None:
-        outputName = field+"_int"
-    for node in graph.nodes:
-        for child in graph.successors(node):
-            graph[node][child][outputName] = (graph.nodes[child].get(
-                field, 0) + graph.nodes[node].get(field, 0))/2 * graph[node][child]["mm_len"]
-    return
+    netw2: nx.DiGraph = netw.copy()
 
+    for node in netw2.nodes:
+        # Add column about number left for calculation to finish
+        netw2.nodes[node]["n_pred_left"] = len(list(netw2.predecessors(node)))
 
-def integrate_nn_field_product(graph: nx.DiGraph, field1: str, field2: str, outputName: str = None) -> None:
-    """integrate_nn_field_product takes 2 fields defined on the graph nodes and calculates the integral of their product
-    assuming a linear appoximation of the 2 fields between nodes and puts them on the
-    [ field1 + "_" + field2 + "_" + "int"] field on the edges.
+    found = False
+    if not inplace:
+        retdict: dict[tuple, dict[str, float]] = defaultdict(dict)
 
-    Parameters
-    ----------
-    graph : nx.DiGraph
-        Graph with the field values present on every node
-    field1 : str
-        The key name of field 1
-    field2 : str
-        The key name of field 2
-    """
-    if outputName is None:
-        outputName = field1 + "_" + field2 + "_int"
-    for node in graph.nodes:
-        for child in graph.successors(node):
-            f1, f2 = graph.nodes[child].get(
-                field1, 0), graph.nodes[node].get(field1, 0)
-            g1, g2 = graph.nodes[child].get(
-                field2, 0), graph.nodes[node].get(field2, 0)
-            graph[node][child][outputName] = (
-                f1*g1/3 + f1*g2/6 + f2*g1/6 + f2*g2/3)*graph[node][child]["mm_len"]
-    return
+    curr_nodes = set()
+    for node in netw.nodes:
+        if not len(list(netw.predecessors(node))):
+            curr_nodes.add(node)
 
+    while len(curr_nodes):
+        next_nodes = set()
 
-def integrate_ne_field_product(graph: nx.DiGraph, nField: str, eField: str, outputName: str = None) -> None:
-    """integrate_ne_field_product take a field on the node and one on the edges, and integrates their
-    product over the graph edges.
+        for node in curr_nodes:
+            if not found and info_col in netw.nodes[node]:
+                found = True
 
-    Parameters
-    ----------
-    graph : nx.DiGraph
-        Graph in question
-    nField : str
-        The name of the field on the nodes
-    eField : str
-        The name of the field on the edges
-    outputName : str, optional
-        The name of the output field on the edges, by default nField + "_" + eField + "_int"
-    """
-    if outputName is None:
-        outputName = nField + "_" + eField + "_int"
-    for node in graph.nodes:
-        for child in graph.successors(node):
-            graph[node][child][outputName] = graph[node][child][eField] * (
-                graph.nodes[node].get(nField, 0) +
-                graph.nodes[child].get(nField, 0)
-            ) * graph[node][child]["mm_len"] / 2
-    return
+            # If there are predecessors left, skip this node
+            if netw2.nodes[node]["n_pred_left"] > 0:
+                next_nodes.add(node)
+                continue
 
+            r_load = netw.nodes[node].get(info_col, 0)
+            rflow = netw.nodes[node].get("flow", 0)
 
-def difference_field(graph: nx.DiGraph, field: str, outputName: str = None) -> None:
-    """difference_field takes the field on the nodes and adds the difference of the
-    field to the nodes with the difference being defined as node - node_predecessor.
+            # Calculate risk
+            cum = r_load
+            for parent in netw2.predecessors(node):
+                cum += netw2.nodes[parent][
+                    info_col + "_cum"
+                ] * distance_scaling(netw2[parent][node]["mm_len"])
+            netw2.nodes[node][info_col + "_cum"] = cum
 
-    Note: On points with multiple predecessors, if one of the differences is negative, the
-    derivative is defined as the mean of the negative difference. If all difference are
-    positive, the difference is defined as the mean of the positive difference.
+            if rflow != 0:
+                risk = risk_method(cum / rflow)
+            else:
+                risk = 0
 
-    Parameters
-    ----------
-    graph : nx.DiGraph
-        The directed graph
-    field : str
-        The name of the field
-    outputName : str, optional
-        The name of the output on the graph to be stored, by default [field] + "_diff"
-    """
-    if outputName is None:
-        outputName = field + '_diff'
-    for node in graph.nodes:
-        diff = []
-        for i, parent in enumerate(graph.predecessors(node)):
-            diff.append((graph.nodes[node].get(
-                field, 0) - graph.nodes[parent].get(field, 0)))
-        diff = np.array(diff)
-        if not len(diff):
-            difference = 0
-        elif (diff < 0).any():
-            difference = np.mean(diff[diff < 0])
-        else:
-            difference = np.mean(diff)
-        graph.nodes[node][outputName] = difference
-    return
+            if inplace:
+                netw.nodes[node][risk_name] = risk
+            else:
+                retdict[node][risk_name] = risk
 
+            # Update successors
+            for child in netw2.successors(node):
+                netw2.nodes[child]["n_pred_left"] -= 1
+                next_nodes.add(child)
+            # Remove from next if present
+            next_nodes.discard(node)
 
-def func_field_e(graph: nx.DiGraph, func: Callable, field: str, outputName: str = None) -> None:
-    """abs_field takes the field on the edges and adds the output of the function
-    to the edges
+        curr_nodes = next_nodes
 
-    Parameters
-    ----------
-    graph : nx.DiGraph
-        The directed graph
-    func : Callable
-        The function to apply to the field
-    field : str
-        The name of the field on the edges
-    outputName : str, optional
-        The name of the output on the graph to be stored, by default [field] + "_abs"
-    """
-    if outputName is None:
-        outputName = field + '_abs'
-    for edge in graph.edges:
-        graph[edge[0]][edge[1]][outputName] = func(
-            graph[edge[0]][edge[1]].get(field, 0))
-    return
-
-
-def func_field_n(graph: nx.DiGraph, func: Callable, field: str, outputName: str = None) -> None:
-    """abs_field takes the field on the nodes and adds the output of the function
-    to the nodes
-
-    Parameters
-    ----------
-    graph : nx.DiGraph
-        The directed graph
-    func : Callable
-        The function to apply to the field
-    field : str
-        The name of the field on the nodes
-    outputName : str, optional
-        The name of the output on the graph to be stored, by default [field] + "_abs"
-    """
-    if outputName is None:
-        outputName = field + '_abs'
-    for node in graph.nodes:
-        graph.nodes[node][outputName] = func(graph.nodes[node].get(field, 0))
+    if not found:
+        raise ValueError(f"Column {info_col} not found in network nodes")
+    if not inplace:
+        return retdict
     return
