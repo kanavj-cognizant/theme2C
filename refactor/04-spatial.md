@@ -31,6 +31,11 @@ The spatial subsystem transforms raw vector datasets into a discretized mesh sui
   - Avoids Python-level row iteration.
   - Assigns `river_index`, `snapped_point`, and `snap_distance` in metres.
 
+### Catchment Delineation (current legacy adapter: [utils/catchment_delineation.py](utils/catchment_delineation.py))
+- Uses `whitebox-workflows` 2.x namespaced hydrology APIs for depression filling, flow routing, stream extraction, pour-point snapping, and watershed delineation.
+- WBE 2's `raster_to_vector_polygons` tool takes an input raster **path**, not an in-memory raster object. The watershed raster is therefore written to the run workspace first, then its absolute path is passed to the conversion tool.
+- The delineation workspace is supplied by the caller; intermediate rasters and vectors are written there.
+
 ---
 
 ## 3. Testing

@@ -28,6 +28,10 @@ dependencies = [
     "rapidfuzz>=3.0.0",
     "fuzzywuzzy>=0.18.0",
     "osgridconverter>=0.1.3",
+    "branca>=0.8.2",
+    "folium>=0.20.0",
+    "matplotlib>=3.10.9",
+    "mapclassify>=2.8.1",
 ]
 
 [dependency-groups]

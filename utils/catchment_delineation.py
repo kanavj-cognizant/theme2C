@@ -38,15 +38,15 @@ def delineate_catchments(
     """
     global rmap_before
     if rmap_before is not None and rmap_before.equals(rmap):
-        return gpd.read_file(
-            pathlib.Path.joinpath(wbe_folder, "polygons.shp").as_posix()
-        ).to_crs(rmap.crs)
+        return gpd.read_file(pathlib.Path.joinpath(wbe_folder, "polygons.shp").as_posix()).to_crs(
+            rmap.crs
+        )
     rmap_before = rmap.copy()
 
     os.makedirs(wbe_folder, exist_ok=True)
     wbe = WbEnvironment()
-    wbe.verbose = False
-    wbe.working_directory = wbe_folder.as_posix()
+    wbe.verbose = False  # ty: ignore[invalid-assignment]
+    wbe.working_directory = wbe_folder.as_posix()  # ty: ignore[invalid-assignment]
     os.makedirs(tile_folder, exist_ok=True)
 
     buffer = 0.15
@@ -64,25 +64,35 @@ def delineate_catchments(
         cache_folder=str(tile_folder),
         verbose=False,
     )
+    if rs is None:
+        raise Exception("wtf")
     rs.to_tif(pathlib.Path.joinpath(wbe_folder, "raster.tif").as_posix())
-    rs = wbe.read_raster("raster.tif")
-    filled = wbe.fill_depressions(rs)
-    d8s = wbe.d8_pointer(filled)
-    accum = wbe.d8_flow_accum(
-        d8s, out_type="cells", clip=False, input_is_pointer=True
+    rs = wbe.read_raster("raster.tif", file_mode="m")
+    filled = wbe.hydrology.depressions_storage.fill_depressions(dem=rs)
+    d8s = wbe.hydrology.flow_routing.d8_pointer(dem=filled)
+    accum = wbe.hydrology.flow_routing.d8_flow_accum(
+        input=d8s, out_type="cells", clip=False, input_is_pointer=True
     )
-    streams = wbe.extract_streams(accum, threshold=1000)
+    streams = wbe.streams.network_extraction.extract_streams(
+        flow_accumulation=accum, threshold=1000.0
+    )
     rmap.to_crs(epsg=4326)["geometry"].to_file(
         pathlib.Path.joinpath(wbe_folder, "riskmap.shp").as_posix()
     )
     points = wbe.read_vector("riskmap.shp")
-    snapped = wbe.jenson_snap_pour_points(points, streams, snap_dist=0.001)
-    watersheds = wbe.watershed(
-        d8_pointer=d8s, pour_points=snapped, esri_pntr=False
+    snapped = wbe.hydrology.jenson_snap_pour_points(
+        pour_pts=points, streams=streams, snap_dist=0.001
     )
-    polygons = wbe.raster_to_vector_polygons(watersheds)
-    wbe.write_vector(polygons, "polygons.shp")
-    polygons = gpd.read_file(
-        pathlib.Path.joinpath(wbe_folder, "polygons.shp").as_posix()
-    ).to_crs(rmap.crs)
+    watersheds = wbe.hydrology.watersheds_basins.watershed(
+        d8_pntr=d8s, pour_pts=snapped, esri_pntr=False
+    )
+    watershed_path = wbe_folder.joinpath("watersheds.tif")
+    wbe.write_raster(raster=watersheds, output_path=watershed_path.as_posix())
+    polygons = wbe.conversion.raster_vector_conversion.raster_to_vector_polygons(
+        input=watershed_path.as_posix()  # ty: ignore[invalid-argument-type]
+    )
+    wbe.write_vector(vector=polygons, output_path="polygons.shp")
+    polygons = gpd.read_file(pathlib.Path.joinpath(wbe_folder, "polygons.shp").as_posix()).to_crs(
+        rmap.crs
+    )
     return polygons
