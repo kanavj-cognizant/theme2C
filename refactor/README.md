@@ -1,6 +1,8 @@
 # Risk-Map Refactor & Architecture Documentation
 
-This folder documents the modernized architecture of the **risk-map** framework, replacing the legacy scripts and notebooks with a modular, typed, and verifiable Python package in [src/risk_map](src/risk_map).
+This folder documents the target architecture and current implementation of
+**risk-map** in [src/risk_map](../src/risk_map). The legacy application has not yet
+been replaced by an end-to-end refactored runner.
 
 ---
 
@@ -10,17 +12,30 @@ Each document focuses on a specific subsystem or package layer without duplicati
 
 | Document | Topic | Key Modules Covered |
 |---|---|---|
-| [refactor/01-architecture.md](refactor/01-architecture.md) | High-Level Architecture & Principles | System layers, package layout, SI units, and quality gates |
-| [refactor/02-config.md](refactor/02-config.md) | Configuration & Physical Parameters | [src/risk_map/config/models.py](src/risk_map/config/models.py), [src/risk_map/config/enums.py](src/risk_map/config/enums.py), [src/risk_map/config/constants.py](src/risk_map/config/constants.py) |
-| [refactor/03-uncertainty.md](refactor/03-uncertainty.md) | Uncertainty & Measurement Model | [src/risk_map/models/uncertainty.py](src/risk_map/models/uncertainty.py) |
-| [refactor/04-spatial.md](refactor/04-spatial.md) | Spatial Geometry & Hydrology | [src/risk_map/spatial/flow.py](src/risk_map/spatial/flow.py), [src/risk_map/spatial/rivers.py](src/risk_map/spatial/rivers.py) |
-| [refactor/05-graph.md](refactor/05-graph.md) | River Network & Topological Sweep | [src/risk_map/graph/network.py](src/risk_map/graph/network.py), [src/risk_map/graph/propagation.py](src/risk_map/graph/propagation.py) |
+| [01-architecture.md](01-architecture.md) | Architecture and workflow | Implemented/proposed file map, dependencies, review gates, migration |
+| [02-config.md](02-config.md) | Configuration and parameters | Enums, Pydantic models, defaults, validation and SI conversions |
+| [03-uncertainty.md](03-uncertainty.md) | Scalar uncertainty | Measurement APIs, correlations, decay/dilution/risk, limitations |
+| [04-spatial.md](04-spatial.md) | Spatial geometry and hydrology | Flow, splitting, snapping, delineation, grouping, output schemas |
+| [05-graph.md](05-graph.md) | Network and propagation | Graph construction, source attribution, topology limitations |
+
+Each subsystem guide records implemented signatures, a caller example, ownership
+and side effects, assumptions, coverage evidence, and open decisions. "Implemented"
+describes behavior; it does not mean every edge case is tested or the contract has
+been approved. Catchment/grouping integration remains provisional. Test references
+describe inspected assertions, not a claim that tests were executed for this audit.
 
 ---
 
 ## Core Tenets
 
-1. **Pure SI Units Throughout**: All distances in metres (m), discharges in cubic metres per second (m³/s), masses in kilograms (kg), and degradation rates in reciprocal seconds (s⁻¹).
-2. **First-Order Uncertainty**: Native error propagation across dilutions and decays via [src/risk_map/models/uncertainty.py](src/risk_map/models/uncertainty.py).
-3. **Single-Pass Mass Balance**: 1D advection-decay evaluated topologically in $O(V + E)$ while retaining granular per-source attribution.
-4. **Automated Quality Gates**: Enforced by [scripts/check.sh](scripts/check.sh) covering Ruff, Ty, and Pytest.
+1. **Explicit Units**: Core calculations use m, m3/s, kg/s, kg/m3, and s^-1.
+	Whitebox/elevation preparation has documented degree/cell-count exceptions.
+2. **First-Order Uncertainty**: Scalar load/flow arithmetic preserves shared-variable
+	correlations; graph flow and transport parameters are currently deterministic.
+3. **Source Attribution**: Transport retains each supplied source ID. Arithmetic
+	and output memory scale with the source entries propagated, not just graph size.
+4. **Review Before Code**: Document and agree contracts, review tests, then
+	implement; bounded experiments resolve questions without silently fixing APIs.
+5. **Evidence-Based Verification**: [scripts/check.sh](../scripts/check.sh) runs
+	Ruff, Ty (with `--fix`), and unit tests. Legacy/new catchment equivalence remains
+	a separate verification task, not an existing guarantee.

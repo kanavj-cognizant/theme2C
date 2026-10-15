@@ -13,6 +13,74 @@ from risk_map.models.uncertainty import Measurement
 from risk_map.spatial.flow import LinearAccumulationFlowEstimator
 
 
+@pytest.mark.parametrize(
+    ("edges", "message"),
+    [
+        ([(1, 1)], "cycle"),
+        ([(1, 2), (2, 1)], "cycle"),
+        ([(1, 2), (2, 3), (3, 1)], "cycle"),
+        ([(1, 2), (1, 3)], "downstream split"),
+        ([(1, 2), (1, 3), (2, 4), (3, 4)], "downstream split"),
+    ],
+    ids=["self-loop", "two-node-cycle", "three-node-cycle", "split", "split-rejoin"],
+)
+def test_propagation_rejects_invalid_topology_before_calculation(edges, message, monkeypatch):
+    import risk_map.graph.propagation as propagation
+
+    graph = nx.DiGraph()
+    graph.add_node((-1.0, 0.0), flow=2.0)
+    for upstream, downstream in edges:
+        graph.add_edge(
+            (float(upstream), 0.0),
+            (float(downstream), 0.0),
+            length=100.0,
+            flow_speed=1.0,
+        )
+    before = graph.copy()
+
+    def unexpected_calculation(*args, **kwargs):
+        pytest.fail("Topology must be validated before numerical propagation")
+
+    monkeypatch.setattr(propagation, "calculate_concentration", unexpected_calculation)
+    with pytest.raises(ValueError, match=message):
+        propagate_loads(graph, {}, P_CONSTANTS)
+
+    assert nx.utils.graphs_equal(graph, before)
+
+
+def test_propagation_accepts_confluences_and_disconnected_catchments():
+    graph = nx.DiGraph()
+    graph.add_edges_from(
+        [
+            ((1.0, 0.0), (3.0, 0.0)),
+            ((2.0, 0.0), (3.0, 0.0)),
+            ((4.0, 0.0), (5.0, 0.0)),
+        ],
+        length=100.0,
+        flow_speed=1.0,
+    )
+    graph.add_node((6.0, 0.0))
+    nx.set_node_attributes(graph, 2.0, "flow")
+    before = graph.copy()
+    injections: InjectedLoads = {
+        (1.0, 0.0): {SourceType.CSO: {"upstream-cso": 1.0}},
+        (2.0, 0.0): {SourceType.WWTW: {"upstream-wwtw": 2.0}},
+        (4.0, 0.0): {SourceType.CSO: {"separate-cso": 3.0}},
+    }
+
+    results = propagate_loads(graph, injections, P_CONSTANTS)
+
+    decay = math.exp(-P_CONSTANTS.degradation_rate * 100.0)
+    assert set(results) == set(graph)
+    assert results[(3.0, 0.0)].total_load.nominal == pytest.approx(3.0 * decay)
+    assert results[(3.0, 0.0)].source_loads[SourceType.CSO][
+        "upstream-cso"
+    ].nominal == pytest.approx(decay)
+    assert results[(5.0, 0.0)].total_load.nominal == pytest.approx(3.0 * decay)
+    assert results[(6.0, 0.0)].total_load.nominal == 0.0
+    assert nx.utils.graphs_equal(graph, before)
+
+
 def test_build_river_graph_structure():
     """Verify directed river graph construction from segmented reaches."""
     # 2 connected reaches: Reach 0 (0,0 -> 100,0), Reach 1 (100,0 -> 200,0)

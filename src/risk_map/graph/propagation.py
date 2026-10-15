@@ -61,16 +61,23 @@ def propagate_loads(
     -------
     dict[tuple[float, float], ReachResult]
         Water quality concentration, risk, and source attribution at each node.
+
+    Raises
+    ------
+    ValueError
+        If the graph contains a directed cycle or a downstream split.
     """
     try:
         topo_order = list(nx.topological_sort(graph))
-    except nx.NetworkXUnfeasible:
-        dag = graph.copy()
-        cycles = list(nx.simple_cycles(dag))
-        for cycle in cycles:
-            if len(cycle) >= 2:
-                dag.remove_edge(cycle[-1], cycle[0])
-        topo_order = list(nx.topological_sort(dag))
+    except nx.NetworkXUnfeasible as error:
+        raise ValueError("River graph contains a directed cycle") from error
+
+    for node, degree in graph.out_degree():
+        if degree > 1:
+            raise ValueError(
+                f"River graph contains a downstream split at node {node!r}; "
+                "each node must have at most one downstream successor"
+            )
 
     results: dict[tuple[float, float], ReachResult] = {}
     accumulated_loads: dict[tuple[float, float], dict[SourceType, dict[str, Measurement]]] = (

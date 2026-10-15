@@ -1,9 +1,8 @@
-import itertools
-
 import geopandas as gpd
 import numpy as np
 import shapely
-from shapely.geometry import LineString, Point
+from shapely.geometry import LineString
+from shapely.ops import substring
 
 from risk_map.config.models import DEFAULT_CONFIG
 
@@ -14,7 +13,7 @@ def split_rivers(
 ) -> gpd.GeoDataFrame:
     """Split river LineStrings into smaller segments up to resolution length.
 
-    Preserves attributes from original river geometries.
+    Preserves original bends, path length, direction, and river attributes.
     """
     if resolution <= 0:
         raise ValueError(f"resolution must be positive, got {resolution}")
@@ -32,15 +31,10 @@ def split_rivers(
     def _split_line(line: LineString) -> list[LineString]:
         if line.length <= resolution:
             return [line]
-        points = shapely.line_interpolate_point(
-            line,
-            np.arange(0, line.length, resolution),
-        )
-        endpoint = Point(line.coords[-1])
-        if endpoint not in points:
-            points = np.append(points, endpoint)
-
-        return [LineString([p1, p2]) for p1, p2 in itertools.pairwise(points)]
+        return [
+            substring(line, start, min(start + resolution, line.length))
+            for start in np.arange(0, line.length, resolution)
+        ]
 
     # Apply splitting: explode the list of lines in pandas first before converting to GeoDataFrame
     exploded_geoms = rivers_exploded.geometry.apply(_split_line)
