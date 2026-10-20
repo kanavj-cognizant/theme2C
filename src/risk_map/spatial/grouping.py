@@ -1,158 +1,210 @@
-from collections import defaultdict
+from collections import Counter, defaultdict
 from typing import Any
 
 import geopandas as gpd
 import networkx as nx
 import polars as pl
 import shapely
-from shapely.geometry.base import BaseGeometry
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from risk_map.config.models import DEFAULT_CONFIG
+from risk_map.spatial.catchment import TARGET_CRS, CatchmentDelineation
+
+_WEIGHT_TOLERANCE = 1e-9
 
 
-def merge_subcatchments_by_area(
-    node_catchments: gpd.GeoDataFrame,
-    river_graph: nx.DiGraph,
-    min_area: float = DEFAULT_CONFIG.min_catchment_area,
-    node_id_column: str = "node_id",
-    graph_node_id_attribute: str = "nodeID",
-) -> tuple[gpd.GeoDataFrame, pl.DataFrame]:
-    """Merge adjacent node catchments downstream until groups reach min_area.
+class SubcatchmentGrouping(BaseModel):
+    """Subcatchments built from merged watersheds, and their river node membership.
 
-    Input polygons must be non-overlapping WBE watershed zones. Missing or
-    empty node polygons contribute zero area. River graph edges must point
-    downstream, and each node may have at most one downstream successor.
-
-    Returns one row per merged subcatchment plus a membership table. Each
-    member node receives an equal allocation weight so its group's weights sum
-    to one.
+    ``subcatchments`` has ``subcatchment_id``, ``area_m2`` (m2), ``below_minimum``
+    and ``geometry`` in EPSG:27700. ``membership`` has one row per river node with
+    ``subcatchment_id``, ``node_id`` and ``allocation_weight``; weights sum to 1
+    per subcatchment.
     """
-    if min_area <= 0:
-        raise ValueError("min_area must be positive")
-    if node_catchments.crs is None or not node_catchments.crs.is_projected:
-        raise ValueError("node_catchments must use a projected CRS in metres")
-    if any(axis.unit_conversion_factor != 1.0 for axis in node_catchments.crs.axis_info):
-        raise ValueError("node_catchments CRS axes must use metres")
-    if node_id_column not in node_catchments.columns:
-        raise ValueError(f"Missing node identifier column: {node_id_column}")
-    if not nx.is_directed_acyclic_graph(river_graph):
-        raise ValueError("river_graph must be a directed acyclic graph")
-    if any(river_graph.out_degree(node) > 1 for node in river_graph):
-        raise ValueError("Each river node must have at most one downstream successor")
 
-    node_by_id: dict[Any, Any] = {}
-    for node, attributes in river_graph.nodes(data=True):
-        if graph_node_id_attribute not in attributes:
-            raise ValueError(f"Graph node {node!r} lacks {graph_node_id_attribute!r}")
-        node_id = attributes[graph_node_id_attribute]
-        if node_id in node_by_id:
-            raise ValueError(f"Duplicate graph node ID: {node_id!r}")
-        node_by_id[node_id] = node
+    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
 
-    grouped_polygons = node_catchments.groupby(node_id_column, sort=False).geometry.agg(
-        lambda geometries: shapely.union_all(geometries.fillna(shapely.Polygon()).to_numpy())
+    subcatchments: gpd.GeoDataFrame
+    membership: pl.DataFrame
+
+    @model_validator(mode="after")
+    def _check_consistency(self) -> "SubcatchmentGrouping":
+        missing = {"subcatchment_id", "area_m2", "below_minimum", "geometry"} - set(
+            self.subcatchments.columns
+        )
+        if missing:
+            raise ValueError(f"subcatchments is missing columns {sorted(missing)}")
+        missing = {"subcatchment_id", "node_id", "allocation_weight"} - set(self.membership.columns)
+        if missing:
+            raise ValueError(f"membership is missing columns {sorted(missing)}")
+        if self.subcatchments.crs is None or self.subcatchments.crs.to_epsg() != 27700:
+            raise ValueError("subcatchments must use EPSG:27700")
+        if self.subcatchments["subcatchment_id"].duplicated().any():
+            raise ValueError("subcatchments contains duplicate subcatchment_id values")
+        unknown = set(self.membership["subcatchment_id"].to_list()) - set(
+            self.subcatchments["subcatchment_id"].tolist()
+        )
+        if unknown:
+            raise ValueError(
+                f"membership references unknown subcatchment_id values {sorted(unknown)}"
+            )
+        if self.membership["node_id"].is_duplicated().any():
+            raise ValueError("membership contains duplicate node_id values")
+        if (self.membership["allocation_weight"] <= 0).any():
+            raise ValueError("membership contains nonpositive allocation_weight values")
+        totals = self.membership.group_by("subcatchment_id").agg(pl.col("allocation_weight").sum())
+        unbalanced = totals.filter((pl.col("allocation_weight") - 1).abs() > _WEIGHT_TOLERANCE)
+        if unbalanced.height:
+            raise ValueError(
+                "allocation_weight does not sum to 1 for subcatchment_id values "
+                f"{sorted(unbalanced['subcatchment_id'].to_list())}"
+            )
+        return self
+
+
+def group_subcatchments(
+    delineation: CatchmentDelineation,
+    river_graph: nx.DiGraph,
+    *,
+    min_area_m2: float = DEFAULT_CONFIG.min_catchment_area,
+    graph_node_id_attribute: str = "nodeID",
+) -> SubcatchmentGrouping:
+    """Merge watersheds downstream into subcatchments of at least ``min_area_m2``.
+
+    Pour points are the grouping unit: the downstream-directed river graph is
+    collapsed to one vertex per pour point, and area accumulates downstream until
+    a group reaches the minimum. An undersized outlet remainder joins the nearest
+    upstream group; a component that never reaches the minimum is kept and
+    flagged ``below_minimum``. Each subcatchment is named after its most
+    downstream pour point, and its member nodes share its load equally.
+    """
+    if not min_area_m2 > 0:
+        raise ValueError(f"min_area_m2 must be positive, got {min_area_m2}")
+    pour_point_of = dict(
+        zip(
+            delineation.membership["node_id"].to_list(),
+            delineation.membership["pour_point_id"].to_list(),
+            strict=True,
+        )
     )
-    polygon_ids = set(grouped_polygons.index)
-    graph_ids = set(node_by_id)
-    unknown = polygon_ids - graph_ids
+    nodes_of: dict[Any, list[Any]] = defaultdict(list)
+    for node_id, pour_point_id in sorted(pour_point_of.items()):
+        nodes_of[pour_point_id].append(node_id)
+
+    watersheds = delineation.watersheds
+    pour_point_ids = watersheds["pour_point_id"].tolist()
+    orphans = sorted(set(pour_point_ids) - set(nodes_of))
+    if orphans:
+        raise ValueError(f"Watersheds referenced by no river node: pour_point_id {orphans}")
+    collapsed = _collapsed_graph(river_graph, pour_point_of, nodes_of, graph_node_id_attribute)
+    areas = dict(zip(pour_point_ids, watersheds["area_m2"].tolist(), strict=True))
+    geometries = dict(zip(pour_point_ids, watersheds.geometry.to_numpy(), strict=True))
+    groups = _merge_downstream(collapsed, areas, min_area_m2)
+
+    subcatchment_ids = sorted(groups)
+    subcatchments = gpd.GeoDataFrame(
+        {"subcatchment_id": subcatchment_ids},
+        geometry=[
+            # Delineation already snapped watersheds to the precision grid.
+            shapely.union_all([geometries[p] for p in groups[s]])
+            for s in subcatchment_ids
+        ],
+        crs=TARGET_CRS,
+    )
+    subcatchments["area_m2"] = subcatchments.area
+    subcatchments["below_minimum"] = subcatchments["area_m2"] < min_area_m2
+
+    rows = []
+    for subcatchment_id in subcatchment_ids:
+        nodes = sorted(node for p in groups[subcatchment_id] for node in nodes_of[p])
+        rows.extend((subcatchment_id, node, 1.0 / len(nodes)) for node in nodes)
+    membership = pl.DataFrame(
+        rows, schema=["subcatchment_id", "node_id", "allocation_weight"], orient="row"
+    )
+    return SubcatchmentGrouping(
+        subcatchments=subcatchments[["subcatchment_id", "area_m2", "below_minimum", "geometry"]],
+        membership=membership,
+    )
+
+
+def _collapsed_graph(
+    river_graph: nx.DiGraph,
+    pour_point_of: dict[Any, Any],
+    nodes_of: dict[Any, list[Any]],
+    id_attribute: str,
+) -> nx.DiGraph:
+    """River graph with one vertex per pour point; must be a forest of in-trees."""
+    node_ids = {}
+    for node, attributes in river_graph.nodes(data=True):
+        if id_attribute not in attributes:
+            raise ValueError(f"Graph node {node!r} lacks the {id_attribute!r} attribute")
+        node_ids[node] = attributes[id_attribute]
+    duplicated = sorted(i for i, count in Counter(node_ids.values()).items() if count > 1)
+    if duplicated:
+        raise ValueError(f"Duplicate graph node IDs: {duplicated}")
+    unknown = sorted(set(node_ids.values()) - set(pour_point_of))
     if unknown:
-        raise ValueError(f"Catchment polygons reference unknown graph node IDs: {unknown}")
+        raise ValueError(f"Graph node IDs missing from delineation membership: {unknown}")
+    absent = sorted(set(pour_point_of) - set(node_ids.values()))
+    if absent:
+        raise ValueError(f"Membership node IDs missing from river_graph: {absent}")
 
-    node_geometry = grouped_polygons.to_dict()
-    for node_id in graph_ids - polygon_ids:
-        node_geometry[node_id] = shapely.Polygon()
-    node_areas = {node_id: float(geometry.area) for node_id, geometry in node_geometry.items()}
-    topological_nodes = list(nx.topological_sort(river_graph))
-    pending_members: dict[Any, list[Any]] = defaultdict(list)
-    pending_areas: dict[Any, float] = defaultdict(float)
-    pending_geometries: dict[Any, list[BaseGeometry]] = defaultdict(list)
+    collapsed = nx.DiGraph()
+    collapsed.add_nodes_from(sorted(nodes_of))
+    for upstream, downstream in river_graph.edges:
+        source, target = pour_point_of[node_ids[upstream]], pour_point_of[node_ids[downstream]]
+        if source != target:
+            collapsed.add_edge(source, target)
 
-    groups: dict[Any, dict[str, Any]] = {}
-    group_for_node: dict[Any, Any] = {}
-    nearest_group: dict[Any, tuple[int, Any]] = {}
-
-    def finalize(
-        group_id: Any, members: list[Any], area: float, geometries: list[BaseGeometry]
-    ) -> None:
-        groups[group_id] = {
-            "members": list(members),
-            "area": area,
-            "geometries": list(geometries),
-            "below_minimum": area < min_area,
-        }
-        for member in members:
-            group_for_node[member] = group_id
-
-    for graph_node in topological_nodes:
-        node_id = river_graph.nodes[graph_node][graph_node_id_attribute]
-        nearest_candidates = []
-        for parent in river_graph.predecessors(graph_node):
-            parent_id = river_graph.nodes[parent][graph_node_id_attribute]
-            if parent_id in group_for_node:
-                nearest_candidates.append((1, group_for_node[parent_id]))
-            elif parent in nearest_group:
-                distance, group_id = nearest_group[parent]
-                nearest_candidates.append((distance + 1, group_id))
-        closest_group = (
-            min(nearest_candidates, key=lambda item: (item[0], str(item[1])))
-            if nearest_candidates
-            else None
+    branching = []
+    for pour_point_id in collapsed:
+        targets = sorted(collapsed.successors(pour_point_id))
+        if len(targets) > 1:
+            branching.append(
+                f"pour point {pour_point_id} (nodes {nodes_of[pour_point_id]}) "
+                f"-> pour points {targets} (nodes {[nodes_of[t] for t in targets]})"
+            )
+    if branching:
+        raise ValueError(
+            "Pour points with more than one downstream neighbour: " + "; ".join(branching)
         )
-        if closest_group is not None:
-            nearest_group[graph_node] = closest_group
+    try:
+        cycle = [source for source, _ in nx.find_cycle(collapsed)]
+    except nx.NetworkXNoCycle:
+        return collapsed
+    nodes = sorted(node for pour_point_id in cycle for node in nodes_of[pour_point_id])
+    raise ValueError(f"Pour points {cycle} form a cycle through river nodes {nodes}")
 
-        members = [*pending_members.pop(node_id, []), node_id]
-        area = pending_areas.pop(node_id, 0.0) + node_areas[node_id]
-        geometries = [*pending_geometries.pop(node_id, []), node_geometry[node_id]]
 
-        if area >= min_area:
-            finalize(node_id, members, area, geometries)
-            continue
+def _merge_downstream(
+    collapsed: nx.DiGraph, areas: dict[Any, float], min_area_m2: float
+) -> dict[Any, list[Any]]:
+    """Pour point groups keyed by their most downstream pour point."""
+    groups: dict[Any, list[Any]] = {}
+    group_of: dict[Any, Any] = {}
+    pending: dict[Any, list[Any]] = defaultdict(list)
+    # Hops to, and key of, the nearest finalized group upstream of each vertex.
+    nearest: dict[Any, tuple[int, Any]] = {}
 
-        downstream = next(iter(river_graph.successors(graph_node)), None)
-        if downstream is not None:
-            downstream_id = river_graph.nodes[downstream][graph_node_id_attribute]
-            pending_members[downstream_id].extend(members)
-            pending_areas[downstream_id] += area
-            pending_geometries[downstream_id].extend(geometries)
-            continue
+    for vertex in nx.topological_sort(collapsed):
+        candidates = []
+        for parent in collapsed.predecessors(vertex):
+            if parent in group_of:
+                candidates.append((1, group_of[parent]))
+            elif parent in nearest:
+                hops, key = nearest[parent]
+                candidates.append((hops + 1, key))
+        if candidates:
+            nearest[vertex] = min(candidates)
 
-        upstream_group_id = closest_group[1] if closest_group is not None else None
-        if upstream_group_id is not None:
-            group_id = upstream_group_id
-            group = groups[group_id]
-            group["members"].extend(members)
-            group["area"] += area
-            group["geometries"].extend(geometries)
-            group["below_minimum"] = group["area"] < min_area
-            for member in members:
-                group_for_node[member] = group_id
-        else:
-            finalize(node_id, members, area, geometries)
-
-    subcatchment_rows = []
-    mapping_rows = []
-    for subcatchment_id, group in groups.items():
-        merged_geometry = shapely.union_all(group["geometries"])
-        members = group["members"]
-        subcatchment_rows.append(
-            {
-                "subcatchment_id": subcatchment_id,
-                "area": float(merged_geometry.area),
-                "below_minimum": group["below_minimum"],
-                "geometry": merged_geometry,
-            }
-        )
-        weight = 1.0 / len(members)
-        mapping_rows.extend(
-            {
-                "subcatchment_id": subcatchment_id,
-                "node_id": member,
-                "allocation_weight": weight,
-            }
-            for member in members
-        )
-
-    merged = gpd.GeoDataFrame(subcatchment_rows, geometry="geometry", crs=node_catchments.crs)
-    mapping = pl.DataFrame(mapping_rows)
-    return merged, mapping
+        members = [*pending.pop(vertex, []), vertex]
+        if sum(areas[member] for member in members) < min_area_m2:
+            downstream = next(iter(collapsed.successors(vertex)), None)
+            if downstream is not None:
+                pending[downstream].extend(members)
+                continue
+            if vertex in nearest:
+                members = groups.pop(nearest[vertex][1]) + members
+        groups[vertex] = members
+        group_of.update(dict.fromkeys(members, vertex))
+    return groups

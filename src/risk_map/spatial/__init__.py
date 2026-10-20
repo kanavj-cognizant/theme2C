@@ -1,13 +1,15 @@
-from risk_map.spatial.catchment import delineate_catchments
+from risk_map.spatial.catchment import CatchmentDelineation, delineate_catchments
 from risk_map.spatial.flow import FlowEstimator, LinearAccumulationFlowEstimator
-from risk_map.spatial.grouping import merge_subcatchments_by_area
+from risk_map.spatial.grouping import SubcatchmentGrouping, group_subcatchments
 from risk_map.spatial.rivers import snap_points_to_rivers, split_rivers
 
 __all__ = [
+    "CatchmentDelineation",
     "FlowEstimator",
     "LinearAccumulationFlowEstimator",
+    "SubcatchmentGrouping",
     "delineate_catchments",
-    "merge_subcatchments_by_area",
+    "group_subcatchments",
     "snap_points_to_rivers",
     "split_rivers",
 ]

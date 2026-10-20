@@ -1,0 +1,17 @@
+{
+  "captured_at": "2026-10-19T15:53:07.150279+00:00",
+  "river_resolution_m": 300.0,
+  "min_area_m2": 20000.0,
+  "elevation_zoom": 12,
+  "buffer_degrees": 0.15,
+  "stream_threshold_cells": 1000.0,
+  "snap_distance_degrees": 0.001,
+  "tile_count": 72,
+  "packages": {
+    "whitebox-workflows": "2.0.6",
+    "elevatr": "0.5.0",
+    "geopandas": "1.2.0",
+    "shapely": "2.2.0",
+    "momepy": "1.0.0"
+  }
+}

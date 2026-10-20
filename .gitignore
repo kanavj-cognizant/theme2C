@@ -6,6 +6,9 @@ data/*/*
 cache/
 wbe/
 output/
+experiments/output/
+# Whitebox Workflows spills unregistered in-memory rasters to a literal "memory:" directory
+memory:/
 
 # Datasets
 !data/crop_categories.csv

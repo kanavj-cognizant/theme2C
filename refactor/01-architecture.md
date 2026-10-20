@@ -20,7 +20,10 @@ The `risk-map` modeling framework calculates point-source and diffuse water qual
 
 ### Target Vision
 A **typed, headless, modular, and reactive library** with:
-- **Pydantic v2 + Strict Enums** for all domain models, configs, and serialization.
+- **Pydantic v2 + Strict Enums** for all domain models, configs, results, and serialization.
+  Results holding DataFrames use `frozen=True`, `arbitrary_types_allowed=True`, and a
+  `model_validator` for cross-table invariants. Known deviation: `ReachResult` in
+  `graph/propagation.py` is a mutable dataclass, to be migrated separately.
 - **Hybrid Data Processing**: Polars for columnar lookups/joins; GeoPandas + Shapely 2 for spatial geometric predicates.
 - **Unified 1D Advection-Decay Topological Sweep**: Orders the network once while retaining per-source attribution. Arithmetic and output size still scale with the source contributions carried downstream; a single traversal is not a source-independent complexity guarantee.
 - **Native First-Order Error Propagation**: Integration with `uncertainties.ufloat` / `unumpy` across flows, loads, and risk ratios.
@@ -86,9 +89,10 @@ Current implementation and detailed contracts are inventoried here:
 | `config/{enums,models,constants}.py` | Vocabulary, `PipelineConfig`, `PollutantParameters`, shared defaults | Implemented; [configuration](02-config.md) |
 | `models/uncertainty.py` | `Measurement`, coercion, scalar decay/dilution/risk | Implemented; [uncertainty](03-uncertainty.md) |
 | `spatial/{flow,rivers}.py` | Estimator protocol, segmentation, snapping | Implemented; [spatial](04-spatial.md) |
-| `spatial/{catchment,grouping}.py` | Whitebox workspace isolation, minimum-area grouping | Provisional implementation; [spatial](04-spatial.md); pour-point identity unresolved |
+| `spatial/{catchment,grouping}.py` | Whitebox workspace isolation, minimum-area grouping | Provisional implementation; delineation target contract agreed in [spatial §6](04-spatial.md#6-agreed-catchment-delineation-contract) |
 | `graph/{network,propagation}.py` | Graph construction, per-pollutant source propagation, mutable `ReachResult` | Implemented with topology limitations; [graph](05-graph.md) |
-| `data/`, source models, `pipeline/`, `api/` | Providers, load preparation, lazy/scenario execution, public runner/results | Proposed; no implemented contract yet |
+| `data/dem.py` | `DemProvider` protocol, `LocalDemProvider`, `ElevatrDemProvider` | Contract agreed in [spatial §6](04-spatial.md#6-agreed-catchment-delineation-contract); not yet implemented |
+| `data/` (rest), source models, `pipeline/`, `api/` | Providers, load preparation, lazy/scenario execution, public runner/results | Proposed; no implemented contract yet |
 
 Subpackages re-export their main public helpers; `InjectedLoads` and
 `MeasurementLike` are defined in their implementation modules. No end-to-end
@@ -109,6 +113,7 @@ src/
     │   └── constants.py        # Pollutant physical constants & degradation rates
     ├── data/
     │   ├── __init__.py
+    │   ├── dem.py              # DemProvider protocol, local and elevatr DEM providers
     │   ├── protocols.py        # DataProvider protocol (swappable repository interface)
     │   ├── local.py            # Local file-based provider (Parquet, CSV, Geopackage)
     │   ├── database.py         # Future external DB provider (PostGIS / SQL)
