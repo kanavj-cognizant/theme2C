@@ -26,9 +26,7 @@ AGRICULTURE_LOAD_LOOKUP = pd.read_csv(
     AGRICULTURE_LOAD_LOOKUP_PATH,
     index_col=["crop_category", "soil_category", "rainfall_category"],
 )
-LIVESTOCK_EXCRETA = pd.read_csv(
-    LIVESTOCK_EXCRETA_PATH, index_col=["OPCAT_ID", "crop_category"]
-)
+LIVESTOCK_EXCRETA = pd.read_csv(LIVESTOCK_EXCRETA_PATH, index_col=["OPCAT_ID", "crop_category"])
 _eng_catch_path = DATA_FOLDER.joinpath("England_shapefile.zip")
 if _eng_catch_path.exists():
     ENG_CATCH = gpd.read_file(
@@ -125,25 +123,18 @@ def agriculture_land_cover_load(
     )
 
     mypoints = mapping_points[
-        (mapping_points["FID"].notna())
-        & (~mapping_points["FID"].isin(riv_catch["FID_poly"]))
+        (mapping_points["FID"].notna()) & (~mapping_points["FID"].isin(riv_catch["FID_poly"]))
     ].rename(columns={"FID": "FID_poly"})
-    all_points = pd.concat(
-        [riv_catch, mypoints[["geometry", "FID_poly"]]], ignore_index=True
-    )
+    all_points = pd.concat([riv_catch, mypoints[["geometry", "FID_poly"]]], ignore_index=True)
     all_points = gpd.GeoDataFrame(all_points)
 
     combined_dist = combined.join(
-        all_points.rename(columns={"geometry": "river_section"}).set_index(
-            "FID_poly", drop=True
-        ),
+        all_points.rename(columns={"geometry": "river_section"}).set_index("FID_poly", drop=True),
         on="FID_poly",
         how="left",
         validate="m:1",
     )
-    combined_dist["distance"] = combined_dist["geometry"].distance(
-        combined_dist["river_section"]
-    )
+    combined_dist["distance"] = combined_dist["geometry"].distance(combined_dist["river_section"])
     combined_dist.drop(columns=["river_section"], inplace=True)
 
     final_with_load = combined_dist.join(
@@ -220,25 +211,18 @@ def agriculture_livestock_load(
     )
 
     mypoints = mapping_points[
-        (mapping_points["FID"].notna())
-        & (~mapping_points["FID"].isin(riv_catch["FID_poly"]))
+        (mapping_points["FID"].notna()) & (~mapping_points["FID"].isin(riv_catch["FID_poly"]))
     ].rename(columns={"FID": "FID_poly"})
-    all_points = pd.concat(
-        [riv_catch, mypoints[["geometry", "FID_poly"]]], ignore_index=True
-    )
+    all_points = pd.concat([riv_catch, mypoints[["geometry", "FID_poly"]]], ignore_index=True)
     all_points = gpd.GeoDataFrame(all_points)
 
     combined_dist = combined.join(
-        all_points.rename(columns={"geometry": "river_section"}).set_index(
-            "FID_poly", drop=True
-        ),
+        all_points.rename(columns={"geometry": "river_section"}).set_index("FID_poly", drop=True),
         on="FID_poly",
         how="left",
         validate="m:1",
     )
-    combined_dist["distance"] = combined_dist["geometry"].distance(
-        combined_dist["river_section"]
-    )
+    combined_dist["distance"] = combined_dist["geometry"].distance(combined_dist["river_section"])
     combined_dist.drop(columns=["river_section"], inplace=True)
 
     livestock_final = gpd.overlay(
@@ -298,18 +282,12 @@ def agriculture_livestock_load(
     if parameter == "P":
         # Convert from kg/year to g/s
         final_with_load["load"] = (
-            final_with_load["excreta"]
-            * final_with_load["P_load"]
-            * 1000
-            / (365 * 60 * 60 * 24)
+            final_with_load["excreta"] * final_with_load["P_load"] * 1000 / (365 * 60 * 60 * 24)
         )
     elif parameter == "NH4":
         # Convert from kg/year to g/s
         final_with_load["load"] = (
-            final_with_load["excreta"]
-            * final_with_load["NH4_load"]
-            * 1000
-            / (365 * 60 * 60 * 24)
+            final_with_load["excreta"] * final_with_load["NH4_load"] * 1000 / (365 * 60 * 60 * 24)
         )
     else:
         raise NotImplementedError("Parameter not implemented.")

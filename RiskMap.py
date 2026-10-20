@@ -81,12 +81,8 @@ class RiskMap:
 
         # Check if column in rivers
         if id_col not in riversdf.columns:
-            raise ValueError(
-                f"River id column [{id_col}] not in river dataframe columns"
-            )
-        riversdf = riversdf.to_crs(epsg=27700).rename(
-            columns={id_col: "riverID"}
-        )
+            raise ValueError(f"River id column [{id_col}] not in river dataframe columns")
+        riversdf = riversdf.to_crs(epsg=27700).rename(columns={id_col: "riverID"})
         self.__rivers: gpd.GeoDataFrame = riversdf
         self.__rivers["flow"] = riversdf.apply(river_flow_func, axis=1)
 
@@ -263,9 +259,7 @@ class RiskMap:
         polygons["geometry"] = polygons["geometry"].make_valid()
         if self.__catchment_mask is not None:
             if polygons.crs is None:
-                raise ValueError(
-                    "Polygons have no CRS, cannot clip to catchment mask"
-                )
+                raise ValueError("Polygons have no CRS, cannot clip to catchment mask")
             polygons = gpd.overlay(
                 polygons,
                 self.__catchment_mask.to_crs(polygons.crs)[["geometry"]],
@@ -288,17 +282,13 @@ class RiskMap:
             validate="1:1",
         )
 
-        mapping_points["poly"] = mapping_points["poly"].fillna(
-            shapely.geometry.Polygon()
-        )
+        mapping_points["poly"] = mapping_points["poly"].fillna(shapely.geometry.Polygon())
         PM_mapping = mapping_points.copy()
 
         PM_mapping["area"] = PM_mapping["poly"].area
         PM_mapping["include"] = PM_mapping["area"].fillna(0) > min_area
 
-        map_poly_join = pd.DataFrame(
-            columns=["FID_poly", "FID_to_join", "river_index"]
-        )
+        map_poly_join = pd.DataFrame(columns=["FID_poly", "FID_to_join", "river_index"])
 
         net: nx.DiGraph = self.__river_network.copy()
         start_nodes = []
@@ -334,29 +324,21 @@ class RiskMap:
             curr_nodes = next_nodes.copy()
             next_nodes = []
 
-        joining_mapping = map_poly_join[
-            map_poly_join["FID_to_join"].notna()
-        ].join(
+        joining_mapping = map_poly_join[map_poly_join["FID_to_join"].notna()].join(
             polygons[["FID", "poly"]].set_index("FID"),
             how="left",
             on="FID_to_join",
             # validate="m:1",
         )
-        joining_mapping = joining_mapping[
-            joining_mapping["FID_to_join"].notna()
-        ]
+        joining_mapping = joining_mapping[joining_mapping["FID_to_join"].notna()]
         joining_mapping["poly"] = joining_mapping["poly"].apply(
             lambda x: shapely.make_valid(x, method="structure")
         )
 
-        joined_catchments: gpd.GeoDataFrame = joining_mapping.groupby(
-            "FID_poly"
-        ).agg(
+        joined_catchments: gpd.GeoDataFrame = joining_mapping.groupby("FID_poly").agg(
             {"poly": shapely.union_all}
         )
-        joined_catchments = joined_catchments.set_geometry("poly").set_crs(
-            rmap.crs
-        )
+        joined_catchments = joined_catchments.set_geometry("poly").set_crs(rmap.crs)
         logger.info("Catchments delineated successfully")
         self.__joined_catchments = joined_catchments
         self.__map_poly_join = map_poly_join
@@ -387,16 +369,12 @@ class RiskMap:
         """
         fid_load = load.groupby("FID_poly").agg({"load": "sum"})
         river_load = fid_load.join(
-            self.__map_poly_join[["river_index", "FID_poly"]].set_index(
-                "FID_poly"
-            ),
+            self.__map_poly_join[["river_index", "FID_poly"]].set_index("FID_poly"),
             how="left",
             validate="1:m",
         )
         river_load = river_load.reset_index(drop=False)
-        river_load["count"] = river_load.groupby("FID_poly")[
-            "FID_poly"
-        ].transform("count")
+        river_load["count"] = river_load.groupby("FID_poly")["FID_poly"].transform("count")
 
         river_load["load"] /= river_load["count"]
         river_load = river_load[river_load["river_index"].notna()]
@@ -429,9 +407,7 @@ class RiskMap:
             else:
                 return x
 
-        points_data = momepy.nx_to_gdf(
-            self.__river_network, points=True, lines=False
-        )
+        points_data = momepy.nx_to_gdf(self.__river_network, points=True, lines=False)
         points_data.drop(columns=["x", "y", "nodeID"], inplace=True)
         for col in points_data.columns:
             points_data[col] = points_data[col].apply(convert_to_list)
@@ -478,9 +454,7 @@ class RiskMap:
             GeoSeries of the closest points on the river network.
         """
         if geometry.crs != self.__rivers_split.crs:
-            raise ValueError(
-                "Points are not in EPSG:27700 CRS which is used by the class"
-            )
+            raise ValueError("Points are not in EPSG:27700 CRS which is used by the class")
 
         closest_point, closest_edge, river_flow = (
             utils.rivers.add_location_on_river_and_closest_edge(
@@ -549,9 +523,7 @@ class RiskMap:
         for node in netw.nodes:
             if netw.nodes[node]["nodeID"] in river_load.index:
                 # Ensure the nodeID exists in load before accessing it
-                netw.nodes[node][info_col_name] = river_load.loc[
-                    netw.nodes[node]["nodeID"],
-                ]
+                netw.nodes[node][info_col_name] = river_load.loc[netw.nodes[node]["nodeID"],]
             else:
                 netw.nodes[node][info_col_name] = 0
         self.__construct_risk_map()
@@ -620,9 +592,7 @@ class RiskMap:
             gdf = gpd.GeoDataFrame.from_dict(risk, orient="index")
             gdf = gdf.reset_index()
             gdf.set_geometry(
-                gdf.apply(
-                    lambda x: shapely.Point(x["level_0"], x["level_1"]), axis=1
-                ),
+                gdf.apply(lambda x: shapely.Point(x["level_0"], x["level_1"]), axis=1),
                 inplace=True,
             )
             gdf.set_crs(epsg=27700, inplace=True)
@@ -677,18 +647,14 @@ class RiskMap:
             gdf = gpd.GeoDataFrame.from_dict(risk, orient="index")
             gdf = gdf.reset_index()
             gdf.set_geometry(
-                gdf.apply(
-                    lambda x: shapely.Point(x["level_0"], x["level_1"]), axis=1
-                ),
+                gdf.apply(lambda x: shapely.Point(x["level_0"], x["level_1"]), axis=1),
                 inplace=True,
             )
             gdf.set_crs(epsg=27700, inplace=True)
             gdf.drop(columns=["level_0", "level_1"], inplace=True)
             return gdf
 
-    def add_simple(
-        self, risk_name: str, inplace: bool = True
-    ) -> gpd.GeoDataFrame | None:
+    def add_simple(self, risk_name: str, inplace: bool = True) -> gpd.GeoDataFrame | None:
         """
         add_simple uses a value already present in the risk map
 
@@ -801,9 +767,7 @@ class RiskMap:
                 risks = (
                     risks.set_index("geometry")
                     .join(
-                        self.add_risk(**item, inplace=False).set_index(
-                            "geometry"
-                        ),
+                        self.add_risk(**item, inplace=False).set_index("geometry"),
                         how="outer",
                     )
                     .reset_index()
@@ -811,22 +775,13 @@ class RiskMap:
 
         if inplace:
             for node in self.__river_network.nodes:
-                self.__river_network.nodes[node][risk_name] = (
-                    aggregation_method(
-                        [
-                            self.__river_network.nodes[node][item["risk_name"]]
-                            for item in risk_list
-                        ]
-                    )
+                self.__river_network.nodes[node][risk_name] = aggregation_method(
+                    [self.__river_network.nodes[node][item["risk_name"]] for item in risk_list]
                 )
             return
         else:
             risks[risk_name] = risks.apply(
-                lambda x: aggregation_method(
-                    [x[item["risk_name"]] for item in risk_list]
-                ),
+                lambda x: aggregation_method([x[item["risk_name"]] for item in risk_list]),
                 axis=1,
             )
-            return gpd.GeoDataFrame(
-                risks, geometry="geometry", crs="EPSG:27700"
-            )
+            return gpd.GeoDataFrame(risks, geometry="geometry", crs="EPSG:27700")

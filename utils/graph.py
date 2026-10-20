@@ -63,14 +63,10 @@ def add_to_graph(
             data_before[id] = next_dist
         # If doesn't exist, add new dict
         else:
-            nx.set_node_attributes(
-                graph, {next_node: {id: next_dist}}, field_name
-            )
+            nx.set_node_attributes(graph, {next_node: {id: next_dist}}, field_name)
 
         # Loop over children nodes
-        directed_graph_bfs(
-            graph, next_node, field_name, distance_cutoff, id, True
-        )
+        directed_graph_bfs(graph, next_node, field_name, distance_cutoff, id, True)
 
     if not both_ways:
         return
@@ -87,12 +83,8 @@ def add_to_graph(
         if data_before is not None and isinstance(data_before, dict):
             data_before[id] = prev_dist
         else:
-            nx.set_node_attributes(
-                graph, {prev_node: {id: prev_dist}}, field_name
-            )
-        directed_graph_bfs(
-            graph, prev_node, field_name, distance_cutoff, id, False
-        )
+            nx.set_node_attributes(graph, {prev_node: {id: prev_dist}}, field_name)
+        directed_graph_bfs(graph, prev_node, field_name, distance_cutoff, id, False)
     return
 
 
@@ -141,34 +133,21 @@ def directed_graph_bfs(
 
                 # Check distance
                 if along_direction:
-                    total_dist = (
-                        graph.nodes[node][col_name][id]
-                        + graph[node][child]["mm_len"]
-                    )
+                    total_dist = graph.nodes[node][col_name][id] + graph[node][child]["mm_len"]
                 else:
-                    total_dist = (
-                        graph.nodes[node][col_name][id]
-                        - graph[child][node]["mm_len"]
-                    )
+                    total_dist = graph.nodes[node][col_name][id] - graph[child][node]["mm_len"]
 
-                if (
-                    total_dist >= distance_cutoff
-                    or total_dist <= -distance_cutoff
-                ):
+                if total_dist >= distance_cutoff or total_dist <= -distance_cutoff:
                     continue
 
                 # Add data
                 if data_before is not None and isinstance(data_before, dict):
                     data_before[id] = total_dist
-                    nx.set_node_attributes(
-                        graph, {child: data_before}, col_name
-                    )
+                    nx.set_node_attributes(graph, {child: data_before}, col_name)
 
                 # If doesn't exist, add new dict
                 else:
-                    nx.set_node_attributes(
-                        graph, {child: {id: total_dist}}, col_name
-                    )
+                    nx.set_node_attributes(graph, {child: {id: total_dist}}, col_name)
 
                 # Add to new_curr
                 new_curr.append(child)
@@ -250,9 +229,7 @@ def add_point_risk(
             flow_node = network.nodes[node].get("flow", 0)
             agg_risk = sum([w * r for w, r in zip(weights, rsk)]) / flow_node
         else:
-            raise NotImplementedError(
-                "aggregation_method not in ['sum','avg','flow_avg']"
-            )
+            raise NotImplementedError("aggregation_method not in ['sum','avg','flow_avg']")
 
         if inplace:
             network.nodes[node][risk_name] = agg_risk
@@ -309,9 +286,9 @@ def add_diffuse_risk(
             # Calculate risk
             cum = r_load
             for parent in netw2.predecessors(node):
-                cum += netw2.nodes[parent][
-                    info_col + "_cum"
-                ] * distance_scaling(netw2[parent][node]["mm_len"])
+                cum += netw2.nodes[parent][info_col + "_cum"] * distance_scaling(
+                    netw2[parent][node]["mm_len"]
+                )
             netw2.nodes[node][info_col + "_cum"] = cum
 
             if rflow != 0:

@@ -17,9 +17,7 @@ FLOW_SPEED = 0.77  # m/s
 
 def p_distance_scaling(x: float | list | np.ndarray) -> float | np.ndarray:
     x = np.asarray(x)
-    result = np.where(
-        x < 0, 0, np.exp(-(P_DEGRADATION_COEFF / 86400) * x / FLOW_SPEED)
-    )
+    result = np.where(x < 0, 0, np.exp(-(P_DEGRADATION_COEFF / 86400) * x / FLOW_SPEED))
     if result.ndim == 0:
         return float(result)
     return result

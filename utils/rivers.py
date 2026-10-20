@@ -63,20 +63,18 @@ def add_location_on_river_and_closest_edge(
         how="left",
     )
     rivers.drop("closestEdge", axis=1)
-    nearest_point_info = nearest_point_info[
-        ~nearest_point_info.index.duplicated(keep="first")
-    ]
+    nearest_point_info = nearest_point_info[~nearest_point_info.index.duplicated(keep="first")]
     connecting_lines = nearest_point_info.apply(
         lambda x: find_shortest_line(x["geometry"], x["index_right"], rivers),
         axis=1,
     ).set_crs(nearest_point_info.crs)
     nearest_point_info.drop(columns=["index_right"], inplace=True)
-    nearest_point_info["closestPoint"] = connecting_lines.apply(
-        get_line_endpoint
-    ).set_crs(nearest_point_info.crs)
-    nearest_point_info["closestEdge"] = nearest_point_info[
-        "closestEdge"
-    ].apply(return_linestring_coords)
+    nearest_point_info["closestPoint"] = connecting_lines.apply(get_line_endpoint).set_crs(
+        nearest_point_info.crs
+    )
+    nearest_point_info["closestEdge"] = nearest_point_info["closestEdge"].apply(
+        return_linestring_coords
+    )
     return (
         nearest_point_info["closestPoint"],
         nearest_point_info["closestEdge"],
@@ -112,12 +110,8 @@ def river_to_graph(rivers: gpd.GeoDataFrame) -> nx.DiGraph:
     for u, v, data in river_graph.edges(data=True):
         edge_id = data.get("riverID")
         edge_flow = data.get("flow", 0.0)
-        river_graph.nodes[u]["flow"] = max(
-            river_graph.nodes[u].get("flow", 0.0), edge_flow
-        )
-        river_graph.nodes[v]["flow"] = max(
-            river_graph.nodes[v].get("flow", 0.0), edge_flow
-        )
+        river_graph.nodes[u]["flow"] = max(river_graph.nodes[u].get("flow", 0.0), edge_flow)
+        river_graph.nodes[v]["flow"] = max(river_graph.nodes[v].get("flow", 0.0), edge_flow)
         if edge_id is not None:
             node_edge_ids[u].add(edge_id)
             node_edge_ids[v].add(edge_id)
@@ -125,9 +119,7 @@ def river_to_graph(rivers: gpd.GeoDataFrame) -> nx.DiGraph:
     return river_graph
 
 
-def split_rivers(
-    rivers: gpd.GeoDataFrame, resolution: float
-) -> gpd.GeoDataFrame:
+def split_rivers(rivers: gpd.GeoDataFrame, resolution: float) -> gpd.GeoDataFrame:
     """
     Split a GeoDataFrame of LineStrings into smaller LineStrings of a
     specified maximum resolution. The function assumes that the rivers
@@ -150,17 +142,13 @@ def split_rivers(
 
     # Check if anything given is not a LineString
     if rivers2.geometry.apply(
-        lambda x: not isinstance(
-            x, (shapely.LineString, shapely.MultiLineString)
-        )
+        lambda x: not isinstance(x, (shapely.LineString, shapely.MultiLineString))
     ).any():
         raise Exception(
             "riversdf has other geometries. This function only works on"
             "LineStrings and MultiLineStrings"
         )
-    rivers2 = rivers2.explode(
-        "geometry"
-    )  # To convert MultiLineStrings to LineStrings
+    rivers2 = rivers2.explode("geometry")  # To convert MultiLineStrings to LineStrings
 
     def split_linestring(line: shapely.LineString) -> list[shapely.LineString]:
         points = shapely.line_interpolate_point(
@@ -172,10 +160,7 @@ def split_rivers(
         if endpoint not in points:
             points = np.append(points, endpoint)
 
-        return [
-            shapely.LineString([p1, p2])
-            for p1, p2 in itertools.pairwise(points)
-        ]
+        return [shapely.LineString([p1, p2]) for p1, p2 in itertools.pairwise(points)]
 
     rivers2["geometry2"] = rivers2.geometry.apply(split_linestring)
 

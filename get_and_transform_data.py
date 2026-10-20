@@ -115,9 +115,9 @@ def get_cso_annual_data(repeat: bool = False) -> gpd.GeoDataFrame:
         )
         annual["geometry"] = ngrs.map(get_lat_lon)
 
-        annual = gpd.GeoDataFrame(
-            annual, geometry="geometry", crs="EPSG:4326"
-        ).to_crs(epsg=OUTPUT_EPSG)
+        annual = gpd.GeoDataFrame(annual, geometry="geometry", crs="EPSG:4326").to_crs(
+            epsg=OUTPUT_EPSG
+        )
 
         for col in annual.columns:
             if annual[col].dtype == "object":
@@ -152,11 +152,7 @@ def get_consents_data(
     consents_path = consentsdb_path.joinpath("consents.csv")
     det_path = consentsdb_path.joinpath("determinands.csv")
 
-    if (
-        os.path.exists(consents_path)
-        and os.path.exists(det_path)
-        and not repeat
-    ):
+    if os.path.exists(consents_path) and os.path.exists(det_path) and not repeat:
         logger.info("Consents data found")
         return (
             pd.read_csv(consents_path),
@@ -167,8 +163,7 @@ def get_consents_data(
     if (
         os.path.exists(
             consentsdb_path.joinpath(
-                "Consented Discharges to Controlled Waters with "
-                "Conditions.accdb"
+                "Consented Discharges to Controlled Waters with Conditions.accdb"
             )
         )
         and not repeat
@@ -198,10 +193,7 @@ def get_consents_data(
                     "mdb-export",
                     str(
                         consentsdb_path.joinpath(
-
-                                "Consented Discharges to Controlled"
-                                " Waters with Conditions.accdb"
-
+                            "Consented Discharges to Controlled Waters with Conditions.accdb"
                         )
                     ),
                     "determinands",
@@ -216,10 +208,7 @@ def get_consents_data(
                     "mdb-export",
                     str(
                         consentsdb_path.joinpath(
-
-                                "Consented Discharges to Controlled"
-                                " Waters with Conditions.accdb"
-
+                            "Consented Discharges to Controlled Waters with Conditions.accdb"
                         )
                     ),
                     "consents_active",
@@ -257,7 +246,7 @@ def get_rivers_data(repeat: bool = False) -> gpd.GeoDataFrame:
 
     header = {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/39.0.2171.95 Safari/537.36"
-    } # For spoofing browser user agent
+    }  # For spoofing browser user agent
 
     try:
         req = requests.get(
@@ -267,9 +256,7 @@ def get_rivers_data(repeat: bool = False) -> gpd.GeoDataFrame:
             timeout=1000,
         )
     except Exception as e:
-        logger.error(
-            f"Failed to download or transform rivers data: {e}, trying alternate method"
-        )
+        logger.error(f"Failed to download or transform rivers data: {e}, trying alternate method")
         try:
             req = requests.get(
                 "https://openrivers.net/download/ORN_v2_GeoPackage.zip",
@@ -305,9 +292,7 @@ def consents_transform(df: pd.DataFrame) -> gpd.GeoDataFrame:
     gpd.GeoDataFrame
         Transformed consents data as a GeoDataFrame.
     """
-    df = df.drop_duplicates(
-        subset=["PERMIT_NUMBER", "OUTLET_GRID_REF"], keep="first"
-    )
+    df = df.drop_duplicates(subset=["PERMIT_NUMBER", "OUTLET_GRID_REF"], keep="first")
     df = df.assign(
         ID=(
             df["PERMIT_NUMBER"].astype(str)
@@ -394,11 +379,7 @@ def determinands_transform(determinands: pd.DataFrame) -> pd.DataFrame:
     determinands.set_index(
         determinands.apply(
             lambda x: str(
-                x["PERMIT_REF"]
-                + "_"
-                + str(x["EFFLUENT_NUMBER"])
-                + "_"
-                + str(x["OUTLET_NUMBER"])
+                x["PERMIT_REF"] + "_" + str(x["EFFLUENT_NUMBER"]) + "_" + str(x["OUTLET_NUMBER"])
             ),
             axis=1,
         ),
@@ -435,10 +416,7 @@ def split_consents(
         (
             (consents["DISCHARGE_SITE_TYPE_CODE"] == "A2")
             & (consents["EFFLUENT_TYPE"] == "SA")
-            & (
-                (consents["OUTLET_TYPE_CODE"] == "S")
-                | (consents["OUTLET_TYPE_CODE"] == "U")
-            )
+            & ((consents["OUTLET_TYPE_CODE"] == "S") | (consents["OUTLET_TYPE_CODE"] == "U"))
         )  # Including the water company treatment works
         | (
             consents["DISCHARGE_SITE_TYPE_CODE"].isin(["A0", "A1"])
@@ -484,9 +462,7 @@ def merge_annual_and_consents(
     distance_joined.set_geometry("geometry")
     distance_joined.drop(columns=["buffer"], inplace=True)
 
-    distance_joined["PERMIT_NUMBER"] = distance_joined["PERMIT_NUMBER"].astype(
-        "str"
-    )
+    distance_joined["PERMIT_NUMBER"] = distance_joined["PERMIT_NUMBER"].astype("str")
     # Fuzzy matching on the permit numbers to find the best match
     distance_joined["score"] = distance_joined.apply(
         lambda x: max(
@@ -508,30 +484,22 @@ def merge_annual_and_consents(
     distance_joined.loc[distance_joined["score"] <= 92, "ID"] = np.nan
 
     # Keep the max score for each unique ID
-    mask = distance_joined["score"] == distance_joined.groupby("Unique ID")[
-        "score"
-    ].transform("max")
+    mask = distance_joined["score"] == distance_joined.groupby("Unique ID")["score"].transform(
+        "max"
+    )
     filtered = distance_joined[mask]
 
     # Remove duplicates and keep the first one
-    filtered = filtered[
-        ~((filtered["ID"].isna()) & (filtered.duplicated("Unique ID")))
-    ]
+    filtered = filtered[~((filtered["ID"].isna()) & (filtered.duplicated("Unique ID")))]
 
     # Find the distance between the annual data and the consents
     filtered["distance"] = filtered.apply(
-        lambda x: (
-            x["OUTLET_LOC"].distance(x["geometry"])
-            if x["OUTLET_LOC"] is not None
-            else None
-        ),
+        lambda x: x["OUTLET_LOC"].distance(x["geometry"]) if x["OUTLET_LOC"] is not None else None,
         axis=1,
     )
 
     # Keep on the the closest match for each unique ID
-    dmask = filtered["distance"] == filtered.groupby("Unique ID")[
-        "distance"
-    ].transform("min")
+    dmask = filtered["distance"] == filtered.groupby("Unique ID")["distance"].transform("min")
     filtered = filtered[dmask]
 
     filtered.rename(
@@ -545,9 +513,7 @@ def merge_annual_and_consents(
     )
 
     filtered = filtered[~filtered["Unique ID"].duplicated()]
-    filtered = filtered.set_index(
-        "Unique ID", drop=True, verify_integrity=True
-    )
+    filtered = filtered.set_index("Unique ID", drop=True, verify_integrity=True)
     filtered.drop(columns=["score", "distance", "OUTLET_LOC"], inplace=True)
     filtered2 = gpd.GeoDataFrame(filtered, geometry="geometry")
     return filtered2
@@ -643,16 +609,12 @@ def get_OS_data(repeat: bool = False):
         layer="road",
         use_arrow=True,
     ).to_crs(epsg=OUTPUT_EPSG)
-    roads.to_parquet(
-        DATA_DIR.joinpath("os_roads.parquet"), write_covering_bbox=True
-    )
+    roads.to_parquet(DATA_DIR.joinpath("os_roads.parquet"), write_covering_bbox=True)
     del roads
 
     logger.info("Processing OS buildings in batches...")
     buildings_parquet_path = DATA_DIR.joinpath("os_buildings.parquet")
-    building_info = pyogrio.read_info(
-        DATA_DIR.joinpath("opmplc_gb.gpkg"), layer="building"
-    )
+    building_info = pyogrio.read_info(DATA_DIR.joinpath("opmplc_gb.gpkg"), layer="building")
     total_features = building_info["features"]
     batch_size = 250_000
 
@@ -741,9 +703,7 @@ def get_and_transform_data(
         annual, consents, determinands, riversdf = get_data(repeat)
         logger.info("Data retrieved")
         logger.info("Transforming Data...")
-        csos, wwtws, determinands = transform_data(
-            annual, consents, determinands
-        )
+        csos, wwtws, determinands = transform_data(annual, consents, determinands)
         logger.info("Data transformed")
         logger.info("Saving data...")
         csos.to_parquet(DATA_DIR.joinpath("cso.parquet"))
@@ -754,9 +714,7 @@ def get_and_transform_data(
         logger.info("Loading downloaded and transformed data...")
         csos = gpd.read_parquet(DATA_DIR.joinpath("cso.parquet"))
         wwtws = gpd.read_parquet(DATA_DIR.joinpath("wwtw.parquet"))
-        determinands = pd.read_parquet(
-            DATA_DIR.joinpath("determinands.parquet")
-        )
+        determinands = pd.read_parquet(DATA_DIR.joinpath("determinands.parquet"))
         riversdf = gpd.read_parquet(DATA_DIR.joinpath("rivers.parquet"))
         logger.info("Data loaded")
     return csos, wwtws, determinands, riversdf
@@ -776,9 +734,7 @@ def get_crome_data(
         gpd.GeoDataFrame: A GeoDataframe with Crop category information
     """
     bbox = mask.to_crs(epsg=4326).total_bounds
-    bbox_str = (
-        f"{bbox[0]-0.0005},{bbox[1]-0.0005},{bbox[2]+0.0005},{bbox[3]+0.0005}"
-    )
+    bbox_str = f"{bbox[0] - 0.0005},{bbox[1] - 0.0005},{bbox[2] + 0.0005},{bbox[3] + 0.0005}"
     crome = gpd.read_file(
         r"https://environment.data.gov.uk/geoservices/datasets/"
         r"a27312b5-d6c9-4710-ad5e-382d727c1b05/ogc/features/v1/collections"
@@ -788,9 +744,7 @@ def get_crome_data(
     )
     if mask.crs is not None:
         crome = crome.to_crs(mask.crs)
-    crop_categories = pd.read_csv(
-        DATA_DIR.joinpath("crop_categories.csv"), index_col=0
-    )
+    crop_categories = pd.read_csv(DATA_DIR.joinpath("crop_categories.csv"), index_col=0)
     crop_categories = crop_categories[crop_categories["category"] != "N/A"]
     crome_cats = crome.join(
         crop_categories[["crop_category"]],
@@ -808,13 +762,11 @@ def get_soil_data() -> gpd.GeoDataFrame:
     Returns:
         gpd.GeoDataFrame: A GeoDataFrame with soil host data and categories.
     """
-    soil_host = gpd.read_file(DATA_DIR.joinpath("soil_host_data.zip")).to_crs(
-        epsg=27700
-    )[["HOST", "geometry"]]
+    soil_host = gpd.read_file(DATA_DIR.joinpath("soil_host_data.zip")).to_crs(epsg=27700)[
+        ["HOST", "geometry"]
+    ]
 
-    host_lookup = pd.read_csv(
-        DATA_DIR.joinpath("soil_lookup.csv"), index_col=0
-    )
+    host_lookup = pd.read_csv(DATA_DIR.joinpath("soil_lookup.csv"), index_col=0)
 
     soil_cats = soil_host.join(
         host_lookup,

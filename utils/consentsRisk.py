@@ -21,11 +21,7 @@ DET_PATH = DATA_DIR.joinpath("determinands.parquet")
 WWTW_PATH = DATA_DIR.joinpath("wwtw.parquet")
 CSO_PATH = DATA_DIR.joinpath("cso.parquet")
 
-if (
-    not os.path.exists(DET_PATH)
-    or not os.path.exists(WWTW_PATH)
-    or not os.path.exists(CSO_PATH)
-):
+if not os.path.exists(DET_PATH) or not os.path.exists(WWTW_PATH) or not os.path.exists(CSO_PATH):
     _ = get_and_transform_data()
 
 determinands = pd.read_parquet(DET_PATH)
@@ -35,39 +31,32 @@ wwtw = gpd.read_parquet(WWTW_PATH)
 
 # Phosphorus values
 wwtw_join = wwtw.join(
-    determinands[
-        (determinands["DETE_CODE"] == 348)
-        & (determinands["CODE"] == "MEAN VALUE")
-    ]["VALUE"],
+    determinands[(determinands["DETE_CODE"] == 348) & (determinands["CODE"] == "MEAN VALUE")][
+        "VALUE"
+    ],
     how="left",
 )
 wwtw_join.rename(columns={"VALUE": "P"}, inplace=True)
 
 # Ammonaical Nitrogen values
 wwtw_join = wwtw_join.join(
-    determinands[
-        (
-            (determinands["DETE_CODE"] == 111)
-            & (determinands["CODE"] == "MAXIMUM VALUE")
-        )
-    ]["VALUE"],
+    determinands[((determinands["DETE_CODE"] == 111) & (determinands["CODE"] == "MAXIMUM VALUE"))][
+        "VALUE"
+    ],
     how="left",
 )
 wwtw_join.rename(columns={"VALUE": "NH4"}, inplace=True)
 
 # Dry weather flow values
 wwtw_join = wwtw_join.join(
-    determinands[
-        (determinands["DETE_CODE"] == 7782)
-        & (determinands["CODE"] == "MAXIMUM VALUE")
-    ]["VALUE"],
+    determinands[(determinands["DETE_CODE"] == 7782) & (determinands["CODE"] == "MAXIMUM VALUE")][
+        "VALUE"
+    ],
     how="left",
 )
 wwtw_join.rename(columns={"VALUE": "DWF"}, inplace=True)
 
-wwtw_join["P"] = (
-    wwtw_join["P"] * P_values.PHOSPHORUS_TO_ORTHOPHOSPHATE_EFFLUENT
-)
+wwtw_join["P"] = wwtw_join["P"] * P_values.PHOSPHORUS_TO_ORTHOPHOSPHATE_EFFLUENT
 wwtw_join.fillna({"P": P_values.WWTW_PHOSPHORUS_FILL_VALUE}, inplace=True)
 wwtw_join.fillna({"NH4": NH4_values.WWTW_NH4_FILL_VALUE}, inplace=True)
 
@@ -93,10 +82,9 @@ cso = gpd.read_parquet(CSO_PATH)
 
 # Weir setting values
 cso_join = cso.join(
-    determinands[
-        (determinands["DETE_CODE"] == 8174)
-        & (determinands["CODE"] == "MINIMUM VALUE")
-    ]["VALUE"],
+    determinands[(determinands["DETE_CODE"] == 8174) & (determinands["CODE"] == "MINIMUM VALUE")][
+        "VALUE"
+    ],
     how="left",
     on="ID",
 )
@@ -215,12 +203,7 @@ def add_cso_p_risk(id: str, river_flow: float) -> float:
     time = cso_join.loc[id, "SpillDuration"]
     seconds = time.total_seconds() if not pd.isna(time) else 0
 
-    p_dilution = (
-        p
-        * weir_setting
-        / (river_flow * 1000)
-        * (seconds / (365 * 24 * 60 * 60))
-    )
+    p_dilution = p * weir_setting / (river_flow * 1000) * (seconds / (365 * 24 * 60 * 60))
     rsk = p_dilution / P_values.P_GUIDELINE * 100
     return rsk
 
@@ -247,12 +230,7 @@ def add_cso_nh4_risk(id: str, river_flow: float) -> float:
     time = cso_join.loc[id, "SpillDuration"]
     seconds = time.total_seconds() if not pd.isna(time) else 0
 
-    nh4_dilution = (
-        nh4
-        * weir_setting
-        / (river_flow * 1000)
-        * (seconds / (365 * 24 * 60 * 60))
-    )
+    nh4_dilution = nh4 * weir_setting / (river_flow * 1000) * (seconds / (365 * 24 * 60 * 60))
     rsk = nh4_dilution / NH4_values.NH4_GUIDELINE * 100
     return rsk
 
